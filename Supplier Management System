@@ -1,0 +1,240 @@
+import streamlit as st
+import pandas as pd
+
+# Initialize supplier data
+if "suppliers" not in st.session_state:
+    st.session_state["suppliers"] = pd.DataFrame({
+        "Supplier Name": [],
+        "Contact Info": [],
+        "Pricing Terms": [],
+        "Products Supplied": []
+    })
+
+# Initialize supplier performance data
+if "supplier_performance" not in st.session_state:
+    st.session_state["supplier_performance"] = pd.DataFrame({
+        "Supplier Name": [],
+        "Delivery Timeliness": [],
+        "Product Quality": [],
+        "Pricing Consistency": [],
+        "Overall Rating": []
+    })
+
+# Initialize purchase order data
+if "purchase_orders" not in st.session_state:
+    st.session_state["purchase_orders"] = pd.DataFrame({
+        "Order ID": [],
+        "Supplier Name": [],
+        "Order Date": [],
+        "Expected Delivery Date": [],
+        "Actual Delivery Date": [],
+        "Order Status": [],
+        "Lead Time (days)": []
+    })
+
+# Function to add a supplier
+def add_supplier():
+    st.subheader("➕ Add New Supplier")
+    with st.form("add_supplier_form"):
+        name = st.text_input("Supplier Name")
+        contact = st.text_input("Contact Info")
+        pricing = st.text_area("Pricing Terms")
+        products = st.text_area("Products Supplied (comma-separated)")
+        submit = st.form_submit_button("Add Supplier")
+        
+        if submit:
+            if name and contact:
+                # Add new supplier to the DataFrame
+                new_supplier = pd.DataFrame({
+                    "Supplier Name": [name],
+                    "Contact Info": [contact],
+                    "Pricing Terms": [pricing],
+                    "Products Supplied": [products]
+                })
+                # Concatenate the new supplier to the existing suppliers
+                st.session_state["suppliers"] = pd.concat([st.session_state["suppliers"], new_supplier], ignore_index=True)
+                
+                # Success message
+                st.success(f"Supplier '{name}' added successfully!")
+                
+            else:
+                st.error("Supplier Name and Contact Info are required fields.")
+
+# Function to view all suppliers
+def view_suppliers():
+    st.subheader("📋 View All Suppliers")
+    if st.session_state["suppliers"].empty:
+        st.info("No suppliers available. Add some suppliers to get started.")
+    else:
+        st.dataframe(st.session_state["suppliers"])
+
+# Function to update supplier details
+def update_supplier():
+    st.subheader("✏️ Update Supplier Details")
+    if st.session_state["suppliers"].empty:
+        st.info("No suppliers to update.")
+        return
+    
+    supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
+    selected_supplier = st.selectbox("Select a Supplier to Update", supplier_names)
+    
+    if selected_supplier:
+        supplier_data = st.session_state["suppliers"][st.session_state["suppliers"]["Supplier Name"] == selected_supplier]
+        current_contact = supplier_data["Contact Info"].values[0]
+        current_pricing = supplier_data["Pricing Terms"].values[0]
+        current_products = supplier_data["Products Supplied"].values[0]
+        
+        new_contact = st.text_input("Contact Info", value=current_contact)
+        new_pricing = st.text_area("Pricing Terms", value=current_pricing)
+        new_products = st.text_area("Products Supplied (comma-separated)", value=current_products)
+        
+        if st.button("Update Supplier"):
+            st.session_state["suppliers"].loc[st.session_state["suppliers"]["Supplier Name"] == selected_supplier, ["Contact Info", "Pricing Terms", "Products Supplied"]] = [new_contact, new_pricing, new_products]
+            st.success(f"Supplier '{selected_supplier}' updated successfully!")
+
+# Function to delete a supplier
+def delete_supplier():
+    st.subheader("🗑️ Delete Supplier")
+    if st.session_state["suppliers"].empty:
+        st.info("No suppliers to delete.")
+        return
+
+    supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
+    selected_supplier = st.selectbox("Select a Supplier to Delete", supplier_names)
+
+    if selected_supplier and st.button("Delete Supplier"):
+        st.session_state["suppliers"] = st.session_state["suppliers"][st.session_state["suppliers"]["Supplier Name"] != selected_supplier]
+        st.success(f"Supplier '{selected_supplier}' deleted successfully!")
+
+# Supplier Performance Rating System
+def rate_supplier_performance():
+    st.subheader("🔍 Rate Supplier Performance")
+    supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
+    selected_supplier = st.selectbox("Select a Supplier to Rate", supplier_names)
+    
+    if selected_supplier:
+        delivery_timeliness = st.slider("Delivery Timeliness (1 to 5)", 1, 5, 3)
+        product_quality = st.slider("Product Quality (1 to 5)", 1, 5, 3)
+        pricing_consistency = st.slider("Pricing Consistency (1 to 5)", 1, 5, 3)
+        
+        overall_rating = (delivery_timeliness + product_quality + pricing_consistency) / 3
+        st.write(f"Overall Rating for {selected_supplier}: {overall_rating:.2f}")
+        
+        if st.button("Save Rating"):
+            # Save the performance data to the session
+            new_rating = pd.DataFrame({
+                "Supplier Name": [selected_supplier],
+                "Delivery Timeliness": [delivery_timeliness],
+                "Product Quality": [product_quality],
+                "Pricing Consistency": [pricing_consistency],
+                "Overall Rating": [overall_rating]
+            })
+            st.session_state["supplier_performance"] = pd.concat(
+                [st.session_state["supplier_performance"], new_rating], ignore_index=True
+            )
+            st.success(f"Performance for '{selected_supplier}' rated successfully!")
+
+# Function to view supplier performance
+def view_supplier_performance():
+    st.subheader("📊 View Supplier Performance")
+    if st.session_state["supplier_performance"].empty:
+        st.info("No performance data available.")
+    else:
+        st.dataframe(st.session_state["supplier_performance"])
+
+# Function to visualize performance (e.g., bar chart for overall rating)
+def visualize_performance():
+    st.subheader("📈 Supplier Performance Visualization")
+    if st.session_state["supplier_performance"].empty:
+        st.info("No performance data available for visualization.")
+    else:
+        performance_data = st.session_state["supplier_performance"]
+        st.bar_chart(performance_data.set_index("Supplier Name")["Overall Rating"])
+
+# Add Purchase Order
+def add_purchase_order():
+    st.subheader("🛒 Add Purchase Order")
+    supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
+    selected_supplier = st.selectbox("Select Supplier", supplier_names)
+    order_date = st.date_input("Order Date")
+    expected_delivery_date = st.date_input("Expected Delivery Date")
+    order_status = st.selectbox("Order Status", ["Pending", "Shipped", "Delivered"])
+    
+    if st.button("Save Purchase Order"):
+        new_order = pd.DataFrame({
+            "Order ID": [len(st.session_state["purchase_orders"]) + 1],
+            "Supplier Name": [selected_supplier],
+            "Order Date": [order_date],
+            "Expected Delivery Date": [expected_delivery_date],
+            "Actual Delivery Date": [None],
+            "Order Status": [order_status],
+            "Lead Time (days)": [(expected_delivery_date - order_date).days]
+        })
+        
+        # Save new purchase order to session state
+        st.session_state["purchase_orders"] = pd.concat(
+            [st.session_state["purchase_orders"], new_order], ignore_index=True
+        )
+        st.success("Purchase Order added successfully!")
+
+# View Purchase Orders
+def view_purchase_orders():
+    st.subheader("📋 View Purchase Orders")
+    if st.session_state["purchase_orders"].empty:
+        st.info("No purchase orders available.")
+    else:
+        st.dataframe(st.session_state["purchase_orders"])
+
+# Update Order Status and Actual Delivery Date
+def update_order_status():
+    st.subheader("✏️ Update Order Status")
+    if st.session_state["purchase_orders"].empty:
+        st.info("No purchase orders to update.")
+        return
+    
+    order_ids = st.session_state["purchase_orders"]["Order ID"].tolist()
+    selected_order_id = st.selectbox("Select an Order to Update", order_ids)
+    
+    order_data = st.session_state["purchase_orders"][st.session_state["purchase_orders"]["Order ID"] == selected_order_id]
+    selected_status = order_data["Order Status"].values[0]
+    expected_delivery_date = order_data["Expected Delivery Date"].values[0]
+    
+    actual_delivery_date = st.date_input("Actual Delivery Date", value=expected_delivery_date)
+    order_status = st.selectbox("Order Status", ["Pending", "Shipped", "Delivered"], index=["Pending", "Shipped", "Delivered"].index(selected_status))
+    
+    if st.button("Update Order Status"):
+        st.session_state["purchase_orders"].loc[st.session_state["purchase_orders"]["Order ID"] == selected_order_id, ["Order Status", "Actual Delivery Date"]] = [order_status, actual_delivery_date]
+        st.success(f"Order {selected_order_id} updated successfully!")
+
+# Main application navigation
+def main():
+    st.title("Supplier Management System")
+    menu = st.sidebar.radio("Choose an option:", 
+                            ["View Suppliers", "Add Supplier", "Update Supplier", "Delete Supplier", 
+                             "Rate Supplier Performance", "View Supplier Performance", 
+                             "Add Purchase Order", "View Purchase Orders", "Update Order Status", 
+                             "Visualize Supplier Performance"])
+
+    if menu == "View Suppliers":
+        view_suppliers()
+    elif menu == "Add Supplier":
+        add_supplier()
+    elif menu == "Update Supplier":
+        update_supplier()
+    elif menu == "Delete Supplier":
+        delete_supplier()
+    elif menu == "Rate Supplier Performance":
+        rate_supplier_performance()
+    elif menu == "View Supplier Performance":
+        view_supplier_performance()
+    elif menu == "Add Purchase Order":
+        add_purchase_order()
+    elif menu == "View Purchase Orders":
+        view_purchase_orders()
+    elif menu == "Update Order Status":
+        update_order_status()
+    elif menu == "Visualize Supplier Performance":
+        visualize_performance()
+
+if __name__ == "__main__":
+    main()

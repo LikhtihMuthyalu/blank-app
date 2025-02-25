@@ -1,0 +1,112 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import datetime
+
+# Sample DataFrame structure
+data = {
+    "Company": ["MICRO LABS LTD", "Cadila Healthcare Ltd", "Enzymes Pharmaceuticals", "Sun Pharmaceutical Industries"],
+    "Product Name": ["DOLO 650", "Albendazole", "ASPIRIN", "PARACETAMOL"],
+    "Product Description": [
+        "DOLO 650 is a widely used analgesic and antipyretic.",
+        "Albendazole is an anthelmintic used to treat parasitic worm infections.",
+        "ASPIRIN is a pain reliever and anti-inflammatory drug.",
+        "PARACETAMOL is a common pain reliever and fever reducer."
+    ],
+    "Usage": [
+        "Used for fever, body aches, and pain relief.",
+        "Used for treating worm infections such as tapeworm and roundworm.",
+        "Used to reduce pain, inflammation, and prevent heart attacks.",
+        "Used for headache, fever, and mild to moderate pain."
+    ],
+    "Manufacture Date": ["2024-01-01", "2024-02-15", "2024-01-20", "2024-03-10"],
+    "Expiry Date": ["2026-01-01", "2026-02-15", "2026-01-20", "2026-03-10"],
+    "Date of Purchase": ["2024-04-01", "2024-04-10", "2024-04-05", "2024-04-15"],
+    "Next Stock Purchase": ["2024-05-01", "2024-05-10", "2024-05-05", "2024-05-15"],
+    "Selling Price": [150, 200, 180, 250],
+    "Purchase Price": [100, 150, 130, 200],
+    "Sales Quantity": [10, 5, 8, 12],
+    "Purchase Quantity": [20, 10, 15, 25],
+    "Date of Sale": ["2024-04-02", "2024-04-11", "2024-04-06", "2024-04-16"]
+}
+
+df = pd.DataFrame(data)
+df["Manufacture Date"] = pd.to_datetime(df["Manufacture Date"])
+df["Expiry Date"] = pd.to_datetime(df["Expiry Date"])
+df["Date of Purchase"] = pd.to_datetime(df["Date of Purchase"])
+df["Next Stock Purchase"] = pd.to_datetime(df["Next Stock Purchase"])
+df["Date of Sale"] = pd.to_datetime(df["Date of Sale"])
+
+# Streamlit UI
+st.title("Pharmacy Financial Advisory Module")
+
+# Sales Report
+st.header("Company-wise Sales Report")
+company_sales = df.groupby("Company")["Sales Quantity"].sum()
+st.bar_chart(company_sales)
+
+# Products under each company
+st.header("Products by Company")
+for company, group in df.groupby("Company"):
+    st.subheader(company)
+    st.write(group[["Product Name", "Product Description", "Usage", "Selling Price", "Purchase Price"]])
+
+# Product-wise Sales and Purchase Report
+st.header("Product-wise Sales and Purchase Report")
+product_sales = df.groupby("Product Name")["Sales Quantity"].sum()
+product_purchases = df.groupby("Product Name")["Purchase Quantity"].sum()
+
+st.subheader("Sales per Product")
+st.bar_chart(product_sales)
+
+st.subheader("Purchases per Product")
+st.bar_chart(product_purchases)
+
+# Most Selling Product
+st.header("Most Selling Product")
+most_selling_product = df.loc[df["Sales Quantity"].idxmax(), ["Product Name", "Sales Quantity"]]
+st.write(most_selling_product)
+
+# Product in Demand During a Specific Time Period
+st.header("Product in Demand During a Specific Time Period")
+selected_start_date = st.date_input("Select Start Date", df["Date of Sale"].min())
+selected_end_date = st.date_input("Select End Date", df["Date of Sale"].max())
+
+demand_df = df[(df["Date of Sale"] >= pd.to_datetime(selected_start_date)) & (df["Date of Sale"] <= pd.to_datetime(selected_end_date))]
+most_demanded_product = demand_df.groupby("Product Name")["Sales Quantity"].sum().idxmax()
+st.write(f"Most Demanded Product: {most_demanded_product}")
+
+# Daily, Weekly, Yearly Sales Report
+st.header("Sales Reports")
+df["Sale Year"] = df["Date of Sale"].dt.year
+df["Sale Week"] = df["Date of Sale"].dt.isocalendar().week
+df["Sale Day"] = df["Date of Sale"].dt.date
+
+sales_daily = df.groupby("Sale Day")["Sales Quantity"].sum()
+sales_weekly = df.groupby("Sale Week")["Sales Quantity"].sum()
+sales_yearly = df.groupby("Sale Year")["Sales Quantity"].sum()
+
+st.subheader("Daily Sales")
+st.bar_chart(sales_daily)
+
+st.subheader("Weekly Sales")
+st.bar_chart(sales_weekly)
+
+st.subheader("Yearly Sales")
+st.bar_chart(sales_yearly)
+
+# Expiry, Purchase, and Next Stock Purchase Info
+st.header("Stock Information")
+st.write(df[["Company", "Product Name", "Manufacture Date", "Expiry Date", "Date of Purchase", "Next Stock Purchase"]])
+
+# Selling Price and Purchase Price
+st.header("Selling and Purchase Prices")
+price_data = df.groupby("Company")[["Selling Price", "Purchase Price"]].mean()
+st.bar_chart(price_data)
+
+# Profit Analysis
+st.header("Profit Analysis")
+df["Profit per Unit"] = df["Selling Price"] - df["Purchase Price"]
+df["Total Profit"] = df["Profit per Unit"] * df["Sales Quantity"]
+profit_by_company = df.groupby("Company")["Total Profit"].sum()
+st.bar_chart(profit_by_company)

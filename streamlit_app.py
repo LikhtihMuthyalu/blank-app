@@ -1,130 +1,13 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-import matplotlib.pyplot as plt
 import datetime
+
+# In-memory data structures
+customers = []
+purchase_history = []
 
 # Streamlit App Configurations
 st.set_page_config(layout="wide")  # Makes the layout wider
-
-# Database Functions
-def create_database():
-    conn = sqlite3.connect('medical_shop.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS customers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contact TEXT UNIQUE NOT NULL CHECK(LENGTH(contact) = 10 AND contact GLOB '[0-9]*'),
-            name TEXT NOT NULL,
-            age INTEGER NOT NULL CHECK(age >= 10),
-            gender TEXT NOT NULL,
-            address TEXT
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS purchase_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contact TEXT NOT NULL,
-            item TEXT NOT NULL,
-            quantity INTEGER NOT NULL CHECK(quantity > 0),
-            price REAL NOT NULL CHECK(price > 0),
-            date TEXT NOT NULL,
-            FOREIGN KEY (contact) REFERENCES customers (contact) ON DELETE CASCADE
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS feedback (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contact TEXT NOT NULL,
-            feedback TEXT NOT NULL,
-            FOREIGN KEY (contact) REFERENCES customers (contact) ON DELETE CASCADE
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-def add_customer(contact, name, age, gender, address):
-    conn = sqlite3.connect('medical_shop.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT contact FROM customers WHERE contact = ?', (contact,))
-    existing_contact = cursor.fetchone()
-    conn.close()
-
-    if existing_contact:
-        return False, "📞 Customer with this contact already exists."
-    
-    try:
-        conn = sqlite3.connect('medical_shop.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO customers (contact, name, age, gender, address) 
-            VALUES (?, ?, ?, ?, ?)
-        ''', (contact, name, age, gender, address))
-        conn.commit()
-        return True, "✔️ Customer added successfully!"
-    except sqlite3.IntegrityError:
-        return False, "❌ Error while adding the customer."
-    finally:
-        conn.close()
-
-def view_customers():
-    conn = sqlite3.connect('medical_shop.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT contact, name, age, gender, address FROM customers')
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-def delete_customer(contact):
-    conn = sqlite3.connect('medical_shop.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM customers WHERE contact = ?', (contact,))
-    if cursor.fetchone():
-        cursor.execute('DELETE FROM customers WHERE contact = ?', (contact,))
-        conn.commit()
-        conn.close()
-        return True, "✅ Customer deleted successfully!"
-    else:
-        conn.close()
-        return False, "❌ Customer not found."
-
-def add_purchase(contact, item, quantity, price, date):
-    discount = 0
-    total_price = quantity * price
-    if total_price > 5000:
-        discount = total_price * 0.1  # 10% discount for purchases over 5000
-
-    if total_price > 10000:
-        discount += total_price * 0.05  # Additional 5% discount for purchases above 10000
-
-    final_price = total_price - discount
-    try:
-        conn = sqlite3.connect('medical_shop.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO purchase_history (contact, item, quantity, price, date)      
-            VALUES (?, ?, ?, ?, ?)
-        ''', (contact, item, quantity, price, date))
-        conn.commit()
-        return True, f"✔️ Purchase record added successfully! {'Discount applied: ₹' + str(discount) if discount > 0 else ''} Total Price: ₹{final_price:.2f}"
-    except sqlite3.IntegrityError:
-        return False, "❌ The contact number does not exist in the customers' database."
-    finally:
-        conn.close()
-
-def view_purchase_history():
-    conn = sqlite3.connect('medical_shop.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT contact, item, quantity, price, date
-        FROM purchase_history
-    ''')
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-# Initialize Database
-create_database()
 
 # Streamlit App
 st.sidebar.title("📋 Navigation")
@@ -143,23 +26,23 @@ if page == "Customer Management":
 
     if st.button("💾 Add Customer"):
         if contact and name and age and gender:
-            success, message = add_customer(contact, name, age, gender, address)
-            if success:
-                st.success(message)
+            if any(c['contact'] == contact for c in customers):
+                st.error("📞 Customer with this contact already exists.")
             else:
-                st.error(message)
+                customers.append({
+                    "contact": contact,
+                    "name": name,
+                    "age": age,
+                    "gender": gender,
+                    "address": address
+                })
+                st.success("✔️ Customer added successfully!")
 
     # View Customers
     st.header("👀 View Customers")
-    customers = view_customers()
     if customers:
-        customer_df = pd.DataFrame(customers, columns=["Contact", "Name", "Age", "Gender", "Address"])
-
-        # Use wide columns for better layout
-        col1, col2 = st.columns([2, 1])  # The first column is wider
-        with col1:
-            st.dataframe(customer_df)
-
+        customer_df = pd.DataFrame(customers)
+        st.dataframe(customer_df)
     else:
         st.info("🧐 No customers found.")
 
@@ -168,11 +51,13 @@ if page == "Customer Management":
     del_contact = st.text_input("Enter Customer Contact to Delete", max_chars=10)
     if st.button("🗑️ Delete Customer"):
         if del_contact:
-            success, message = delete_customer(del_contact)
-            if success:
-                st.success(message)
+            for customer in customers:
+                if customer['contact'] == del_contact:
+                    customers.remove(customer)
+                    st.success("✅ Customer deleted successfully!")
+                    break
             else:
-                st.error(message)
+                st.error("❌ Customer not found.")
 
 elif page == "Purchase History":
     st.title("🛒 Purchase History Management")
@@ -191,40 +76,35 @@ elif page == "Purchase History":
 
         if st.button("💾 Add Purchase"):
             if contact and item:
-                success, message = add_purchase(contact, item, quantity, price, str(date))
-                if success:
-                    st.success(message)
+                if any(c['contact'] == contact for c in customers):
+                    purchase_history.append({
+                        "contact": contact,
+                        "item": item,
+                        "quantity": quantity,
+                        "price": price,
+                        "date": str(date)
+                    })
+                    st.success("✔️ Purchase record added successfully!")
                 else:
-                    st.error(message)
+                    st.error("❌ The contact number does not exist in the customers' list.")
 
     # Tab 2: View Purchase History - Grouped by Contact
     with tab2:
         st.header("📝 Purchase History")
-
-        # Fetch purchase data from database
-        purchases = view_purchase_history()
-
-        if purchases:
-            # Convert to DataFrame for better visualization
-            purchase_df = pd.DataFrame(purchases, columns=["Contact", "Item", "Quantity", "Price", "Date"])
-
-            # Grouping purchases by contact
-            grouped_purchase_df = purchase_df.groupby("Contact").agg({
-                "Item": lambda x: ", ".join(x),
-                "Quantity": "sum",
-                "Price": "sum",
-                "Date": lambda x: ", ".join(x)
+        if purchase_history:
+            purchase_df = pd.DataFrame(purchase_history)
+            grouped_purchase_df = purchase_df.groupby("contact").agg({
+                "item": lambda x: ", ".join(x),
+                "quantity": "sum",
+                "price": "sum",
+                "date": lambda x: ", ".join(x)
             }).reset_index()
 
             # Format Price as currency
-            grouped_purchase_df['Price'] = grouped_purchase_df['Price'].apply(lambda x: f"₹{x:.2f}")
-            grouped_purchase_df['Quantity'] = grouped_purchase_df['Quantity'].astype(int)
+            grouped_purchase_df['price'] = grouped_purchase_df['price'].apply(lambda x: f"₹{x:.2f}")
+            grouped_purchase_df['quantity'] = grouped_purchase_df['quantity'].astype(int)
 
-            # Use wide columns for better layout
-            col1, col2 = st.columns([2, 1])  # The first column is wider
-            with col1:
-                st.dataframe(grouped_purchase_df)
-
+            st.dataframe(grouped_purchase_df)
         else:
             st.info("🧐 No purchase records found.")
 

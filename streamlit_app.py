@@ -1,257 +1,340 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
-import json
+import matplotlib.pyplot as plt
+import datetime
 
-try:
-    import plotly.express as px
-    PLOTLY_AVAILABLE = True
-except ImportError:
-    PLOTLY_AVAILABLE = False
+# Streamlit App Configurations
+st.set_page_config(layout="wide")  # Makes the layout wider
 
-# Load and save users to/from a JSON file
-def load_users():
+# Database Functions
+def create_database():
+    conn = sqlite3.connect('medical_shop.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact TEXT UNIQUE NOT NULL CHECK(LENGTH(contact) = 10 AND contact GLOB '[0-9]*'),
+            name TEXT NOT NULL,
+            age INTEGER NOT NULL CHECK(age >= 10),
+            gender TEXT NOT NULL,
+            address TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS purchase_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact TEXT NOT NULL,
+            item TEXT NOT NULL,
+            quantity INTEGER NOT NULL CHECK(quantity > 0),
+            price REAL NOT NULL CHECK(price > 0),
+            date TEXT NOT NULL,
+            FOREIGN KEY (contact) REFERENCES customers (contact) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact TEXT NOT NULL,
+            feedback TEXT NOT NULL,
+            FOREIGN KEY (contact) REFERENCES customers (contact) ON DELETE CASCADE
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def add_customer(contact, name, age, gender, address):
+    conn = sqlite3.connect('medical_shop.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT contact FROM customers WHERE contact = ?', (contact,))
+    existing_contact = cursor.fetchone()
+    conn.close()
+
+    if existing_contact:
+        return False, "📞 Customer with this contact already exists."
+    
     try:
-        with open("users.json", "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {
-            "staff": {"username": "staff_user", "password": "staff123"},
-            "owner": {"username": "owner_user", "password": "owner123"}
-        }
+        conn = sqlite3.connect('medical_shop.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO customers (contact, name, age, gender, address) 
+            VALUES (?, ?, ?, ?, ?)
+        ''', (contact, name, age, gender, address))
+        conn.commit()
+        return True, "✔️ Customer added successfully!"
+    except sqlite3.IntegrityError:
+        return False, "❌ Error while adding the customer."
+    finally:
+        conn.close()
 
-def save_users():
-    with open("users.json", "w") as f:
-        json.dump(users, f, indent=4)
+def view_customers():
+    conn = sqlite3.connect('medical_shop.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT contact, name, age, gender, address FROM customers')
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
-# Load users at the start
-users = load_users()
-
-# Initialize session state for inventory if not already done
-if 'inventory' not in st.session_state:
-    # Example medical inventory data
-    st.session_state['inventory'] = pd.DataFrame({
-        'Item Name': ['Bandages', 'Syringes', 'Face Masks', 'Gloves', 'Paracetamol'],
-        'Quantity': [50, 200, 100, 150, 500],
-        'Price': [0.1, 0.5, 0.2, 0.15, 0.05],
-        'Expiry Date': ['2025-01-10', '2025-06-20', '2024-12-31', '2025-03-15', '2026-01-01']
-    })
-
-# Update thresholds for medical inventory
-LOW_STOCK_THRESHOLD = 20
-EXCESS_STOCK_THRESHOLD = 300
-
-st.set_page_config(page_title="MEDICAL INVENTORY MANAGEMENT APP", layout="wide", page_icon="🩺")
-
-st.title("🩺 MEDICAL INVENTORY MANAGEMENT APP")
-
-# Role-based login
-st.write("Welcome! Please log in to access the system.")
-
-# Sidebar for user role selection
-role = st.sidebar.radio("Select your role:", ["Staff", "Owner"])
-
-# Login Form
-st.subheader("Login")
-username = st.text_input("Username")
-password = st.text_input("Password", type="password")
-login_button = st.button("Log In")
-logout_button = st.button("Log Out")
-
-# Authentication logic
-if login_button:
-    user = users.get(role.lower())
-    if user and username == user["username"] and password == user["password"]:
-        st.success(f"Welcome, {username}! You are logged in as {role}.")
-        if role == "Staff":
-            st.info("You have access to view inventory and alerts.")
-        elif role == "Owner":
-            st.info("You have full access to manage inventory and financials.")
-        st.session_state.logged_in = True
+def delete_customer(contact):
+    conn = sqlite3.connect('medical_shop.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM customers WHERE contact = ?', (contact,))
+    if cursor.fetchone():
+        cursor.execute('DELETE FROM customers WHERE contact = ?', (contact,))
+        conn.commit()
+        conn.close()
+        return True, "✅ Customer deleted successfully!"
     else:
-        st.error("Invalid username or password. Please try again.")
+        conn.close()
+        return False, "❌ Customer not found."
 
-elif logout_button:
-    st.session_state.logged_in = False
-    st.success("You have been logged out.")
+def add_purchase(contact, item, quantity, price, date):
+    discount = 0
+    total_price = quantity * price
+    if total_price > 5000:
+        discount = total_price * 0.1  # 10% discount for purchases over 5000
 
-# Function to display the inventory
-def view_inventory():
-    st.subheader("📋 Current Medical Inventory")
-    if st.session_state['inventory'].empty:
-        st.info("No items in inventory.")
+    if total_price > 10000:
+        discount += total_price * 0.05  # Additional 5% discount for purchases above 10000
+
+    final_price = total_price - discount
+    try:
+        conn = sqlite3.connect('medical_shop.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO purchase_history (contact, item, quantity, price, date)      
+            VALUES (?, ?, ?, ?, ?)
+        ''', (contact, item, quantity, price, date))
+        conn.commit()
+        return True, f"✔️ Purchase record added successfully! {'Discount applied: ₹' + str(discount) if discount > 0 else ''} Total Price: ₹{final_price:.2f}"
+    except sqlite3.IntegrityError:
+        return False, "❌ The contact number does not exist in the customers' database."
+    finally:
+        conn.close()
+
+def view_purchase_history():
+    conn = sqlite3.connect('medical_shop.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT contact, item, quantity, price, date
+        FROM purchase_history
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+# Initialize Database
+create_database()
+
+# Streamlit App
+st.sidebar.title("📋 Navigation")
+page = st.sidebar.radio("Go to", ["Customer Management", "Purchase History", "Pharmacy Financial Advisory"])
+
+if page == "Customer Management":
+    st.title("👨‍⚕️ Customer Management")
+
+    # Add Customer
+    st.header("➕ Add Customer")
+    contact = st.text_input("Customer Contact", max_chars=10, key="customer_contact")
+    name = st.text_input("Customer Name", key="customer_name")
+    age = st.number_input("Customer Age", min_value=10, max_value=100, key="customer_age")
+    gender = st.selectbox("Customer Gender", ["Male", "Female", "Other"], key="customer_gender")
+    address = st.text_area("Customer Address", key="customer_address")
+
+    if st.button("💾 Add Customer"):
+        if contact and name and age and gender:
+            success, message = add_customer(contact, name, age, gender, address)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+
+    # View Customers
+    st.header("👀 View Customers")
+    customers = view_customers()
+    if customers:
+        customer_df = pd.DataFrame(customers, columns=["Contact", "Name", "Age", "Gender", "Address"])
+
+        # Use wide columns for better layout
+        col1, col2 = st.columns([2, 1])  # The first column is wider
+        with col1:
+            st.dataframe(customer_df)
+
     else:
-        st.dataframe(st.session_state['inventory'])
+        st.info("🧐 No customers found.")
 
-        if PLOTLY_AVAILABLE:
-            # Add a bar chart to visualize quantities
-            fig = px.bar(st.session_state['inventory'], x='Item Name', y='Quantity', color='Item Name',
-                         title="Medical Inventory Quantities", labels={'Quantity': 'Stock Quantity'})
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Plotly is not installed. Install it using `pip install plotly` to enable visualizations.")
+    # Delete Customer
+    st.header("🗑️ Delete Customer")
+    del_contact = st.text_input("Enter Customer Contact to Delete", max_chars=10)
+    if st.button("🗑️ Delete Customer"):
+        if del_contact:
+            success, message = delete_customer(del_contact)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
 
-def add_item():
-    st.subheader("➕ Add New Medical Item")
-    with st.form("add_item_form"):
-        item_name = st.text_input("Item Name")
+elif page == "Purchase History":
+    st.title("🛒 Purchase History Management")
+
+    # Tabs for Navigation
+    tab1, tab2 = st.tabs(["➕ Add Purchase", "📝 View Purchase History"])
+
+    # Tab 1: Add Purchase
+    with tab1:
+        st.header("🛒 Add Purchase Records")
+        contact = st.text_input("Customer Contact", max_chars=10, key="add_purchase_contact")
+        item = st.text_input("Item Name")
         quantity = st.number_input("Quantity", min_value=1, step=1)
-        price = st.number_input("Price", min_value=0.0, step=0.01)
-        expiry_date = st.date_input("Expiry Date")
-        submit = st.form_submit_button("Add Item")
+        price = st.number_input("Price", min_value=0.01, step=0.01, format="%.2f")
+        date = st.date_input("Purchase Date")
 
-        if submit:
-            if item_name:
-                new_item = pd.DataFrame({
-                    "Item Name": [item_name],
-                    "Quantity": [quantity],
-                    "Price": [price],
-                    "Expiry Date": [expiry_date]
-                })
-                st.session_state['inventory'] = pd.concat([st.session_state['inventory'], new_item], ignore_index=True)
-                st.success(f"Item '{item_name}' added successfully!")
-            else:
-                st.error("Item Name cannot be empty.")
-
-def update_item():
-    st.subheader("✏️ Update Medical Item")
-    if st.session_state['inventory'].empty:
-        st.info("No items to update.")
-        return
-
-    item_names = st.session_state['inventory']['Item Name'].tolist()
-    selected_item = st.selectbox("Select Item to Update", item_names)
-
-    if selected_item:
-        item_data = st.session_state['inventory'][st.session_state['inventory']['Item Name'] == selected_item]
-        current_quantity = int(item_data['Quantity'].values[0])
-        current_price = float(item_data['Price'].values[0])
-        current_expiry_date = item_data['Expiry Date'].values[0]
-
-        new_quantity = st.number_input("New Quantity", min_value=1, value=current_quantity, step=1)
-        new_price = st.number_input("New Price", min_value=0.0, value=current_price, step=0.01)
-        new_expiry_date = st.date_input("New Expiry Date", value=pd.to_datetime(current_expiry_date))
-
-        if st.button("Update Item"):
-            st.session_state['inventory'].loc[st.session_state['inventory']['Item Name'] == selected_item, ['Quantity', 'Price', 'Expiry Date']] = [new_quantity, new_price, new_expiry_date]
-            st.success(f"Item '{selected_item}' updated successfully!")
-
-def delete_item():
-    st.subheader("🗑️ Delete Medical Item")
-    if st.session_state['inventory'].empty:
-        st.info("No items to delete.")
-        return
-
-    item_names = st.session_state['inventory']['Item Name'].tolist()
-    selected_item = st.selectbox("Select Item to Delete", item_names)
-
-    if selected_item and st.button("Delete Item"):
-        st.session_state['inventory'] = st.session_state['inventory'][st.session_state['inventory']['Item Name'] != selected_item]
-        st.success(f"Item '{selected_item}' deleted successfully!")
-
-def alerts():
-    st.subheader("⚠️ Stock Alerts")
-    low_stock_items = st.session_state['inventory'][st.session_state['inventory']['Quantity'] < LOW_STOCK_THRESHOLD]
-    excess_stock_items = st.session_state['inventory'][st.session_state['inventory']['Quantity'] > EXCESS_STOCK_THRESHOLD]
-
-    if low_stock_items.empty:
-        st.info("No low stock items.")
-    else:
-        st.warning("Low Stock Items:")
-        st.dataframe(low_stock_items)
-
-        if PLOTLY_AVAILABLE:
-            fig = px.pie(low_stock_items, names='Item Name', values='Quantity', title="Low Stock Items")
-            st.plotly_chart(fig, use_container_width=True)
-
-    if excess_stock_items.empty:
-        st.info("No excess stock items.")
-    else:
-        st.warning("Excess Stock Items:")
-        st.dataframe(excess_stock_items)
-
-        if PLOTLY_AVAILABLE:
-            fig = px.bar(excess_stock_items, x='Item Name', y='Quantity', color='Item Name',
-                         title="Excess Stock Quantities", labels={'Quantity': 'Stock Quantity'})
-            st.plotly_chart(fig, use_container_width=True)
-
-def payments_due():
-    st.subheader("💰 Expiry Alerts")
-    today = pd.Timestamp.now().date()
-    st.session_state['inventory']['Expiry Date'] = pd.to_datetime(st.session_state['inventory']['Expiry Date'])
-    expired_items = st.session_state['inventory'][st.session_state['inventory']['Expiry Date'].dt.date < today]
-
-    if expired_items.empty:
-        st.info("No expired items.")
-    else:
-        st.warning("Expired Items:")
-        st.dataframe(expired_items)
-
-        if PLOTLY_AVAILABLE:
-            expired_items['Days Expired'] = expired_items['Expiry Date'].apply(lambda x: (today - x.date()).days)
-            fig = px.bar(expired_items, x='Item Name', y='Days Expired', color='Item Name',
-                         title="Expired Items", labels={'Days Expired': 'Days Expired'})
-            st.plotly_chart(fig, use_container_width=True)
-
-def manage_users():
-    st.subheader("👤 Manage Users")
-    action = st.radio("Select Action", ["Add User", "Remove User"])
-
-    if action == "Add User":
-        with st.form("add_user_form"):
-            new_role = st.selectbox("Select Role", ["Staff", "Owner"])
-            new_username = st.text_input("New Username")
-            new_password = st.text_input("New Password", type="password")
-            submit_button = st.form_submit_button("Add User")
-
-            if submit_button:
-                if new_username and new_password:
-                    users[new_role.lower()] = {"username": new_username, "password": new_password}
-                    save_users()
-                    st.success(f"User '{new_username}' added successfully as {new_role}.")
+        if st.button("💾 Add Purchase"):
+            if contact and item:
+                success, message = add_purchase(contact, item, quantity, price, str(date))
+                if success:
+                    st.success(message)
                 else:
-                    st.error("Both username and password are required.")
+                    st.error(message)
 
-    elif action == "Remove User":
-        remove_role = st.selectbox("Select Role to Remove", ["Staff", "Owner"])
-        if st.button("Remove User"):
-            if remove_role.lower() in users:
-                del users[remove_role.lower()]
-                save_users()
-                st.success(f"User with role '{remove_role}' removed successfully.")
-            else:
-                st.error(f"No user with role '{remove_role}' found.")
+    # Tab 2: View Purchase History - Grouped by Contact
+    with tab2:
+        st.header("📝 Purchase History")
 
-def main():
-    if 'logged_in' not in st.session_state or not st.session_state.logged_in:
-        return
+        # Fetch purchase data from database
+        purchases = view_purchase_history()
 
-    if role == "Staff" and username == users['staff']['username'] and password == users['staff']['password']:
-        st.sidebar.title("Navigation")
-        menu = st.sidebar.radio("Go to", ["View Inventory", "Alerts", "Expiry Alerts"])
-        if menu == "View Inventory":
-            view_inventory()
-        elif menu == "Alerts":
-            alerts()
-        elif menu == "Expiry Alerts":
-            payments_due()
+        if purchases:
+            # Convert to DataFrame for better visualization
+            purchase_df = pd.DataFrame(purchases, columns=["Contact", "Item", "Quantity", "Price", "Date"])
 
-    elif role == "Owner" and username == users['owner']['username'] and password == users['owner']['password']:
-        st.sidebar.title("Navigation")
-        menu = st.sidebar.radio("Go to", ["View Inventory", "Add Item", "Update Item", "Delete Item", "Alerts", "Expiry Alerts", "Manage Users"])
-        if menu == "View Inventory":
-            view_inventory()
-        elif menu == "Add Item":
-            add_item()
-        elif menu == "Update Item":
-            update_item()
-        elif menu == "Delete Item":
-            delete_item()
-        elif menu == "Alerts":
-            alerts()
-        elif menu == "Expiry Alerts":
-            payments_due()
-        elif menu == "Manage Users":
-            manage_users()
+            # Grouping purchases by contact
+            grouped_purchase_df = purchase_df.groupby("Contact").agg({
+                "Item": lambda x: ", ".join(x),
+                "Quantity": "sum",
+                "Price": "sum",
+                "Date": lambda x: ", ".join(x)
+            }).reset_index()
 
-if __name__ == "__main__":
-    main()
+            # Format Price as currency
+            grouped_purchase_df['Price'] = grouped_purchase_df['Price'].apply(lambda x: f"₹{x:.2f}")
+            grouped_purchase_df['Quantity'] = grouped_purchase_df['Quantity'].astype(int)
+
+            # Use wide columns for better layout
+            col1, col2 = st.columns([2, 1])  # The first column is wider
+            with col1:
+                st.dataframe(grouped_purchase_df)
+
+        else:
+            st.info("🧐 No purchase records found.")
+
+elif page == "Pharmacy Financial Advisory":
+    st.title("Pharmacy Financial Advisory Module")
+
+    # Sample DataFrame structure
+    data = {
+        "Company": ["MICRO LABS LTD", "Cadila Healthcare Ltd", "Enzymes Pharmaceuticals", "Sun Pharmaceutical Industries"],
+        "Product Name": ["DOLO 650", "Albendazole", "ASPIRIN", "PARACETAMOL"],
+        "Product Description": [
+            "DOLO 650 is a widely used analgesic and antipyretic.",
+            "Albendazole is an anthelmintic used to treat parasitic worm infections.",
+            "ASPIRIN is a pain reliever and anti-inflammatory drug.",
+            "PARACETAMOL is a common pain reliever and fever reducer."
+        ],
+        "Usage": [
+            "Used for fever, body aches, and pain relief.",
+            "Used for treating worm infections such as tapeworm and roundworm.",
+            "Used to reduce pain, inflammation, and prevent heart attacks.",
+            "Used for headache, fever, and mild to moderate pain."
+        ],
+        "Manufacture Date": ["2024-01-01", "2024-02-15", "2024-01-20", "2024-03-10"],
+        "Expiry Date": ["2026-01-01", "2026-02-15", "2026-01-20", "2026-03-10"],
+        "Date of Purchase": ["2024-04-01", "2024-04-10", "2024-04-05", "2024-04-15"],
+        "Next Stock Purchase": ["2024-05-01", "2024-05-10", "2024-05-05", "2024-05-15"],
+        "Selling Price": [150, 200, 180, 250],
+        "Purchase Price": [100, 150, 130, 200],
+        "Sales Quantity": [10, 5, 8, 12],
+        "Purchase Quantity": [20, 10, 15, 25],
+        "Date of Sale": ["2024-04-02", "2024-04-11", "2024-04-06", "2024-04-16"]
+    }
+
+    df = pd.DataFrame(data)
+    df["Manufacture Date"] = pd.to_datetime(df["Manufacture Date"])
+    df["Expiry Date"] = pd.to_datetime(df["Expiry Date"])
+    df["Date of Purchase"] = pd.to_datetime(df["Date of Purchase"])
+    df["Next Stock Purchase"] = pd.to_datetime(df["Next Stock Purchase"])
+    df["Date of Sale"] = pd.to_datetime(df["Date of Sale"])
+
+    # Sales Report
+    st.header("Company-wise Sales Report")
+    company_sales = df.groupby("Company")["Sales Quantity"].sum()
+    st.bar_chart(company_sales)
+
+    # Products under each company
+    st.header("Products by Company")
+    for company, group in df.groupby("Company"):
+        st.subheader(company)
+        st.write(group[["Product Name", "Product Description", "Usage", "Selling Price", "Purchase Price"]])
+
+    # Product-wise Sales and Purchase Report
+    st.header("Product-wise Sales and Purchase Report")
+    product_sales = df.groupby("Product Name")["Sales Quantity"].sum()
+    product_purchases = df.groupby("Product Name")["Purchase Quantity"].sum()
+
+    st.subheader("Sales per Product")
+    st.bar_chart(product_sales)
+
+    st.subheader("Purchases per Product")
+    st.bar_chart(product_purchases)
+
+    # Most Selling Product
+    st.header("Most Selling Product")
+    most_selling_product = df.loc[df["Sales Quantity"].idxmax(), ["Product Name", "Sales Quantity"]]
+    st.write(most_selling_product)
+
+    # Product in Demand During a Specific Time Period
+    st.header("Product in Demand During a Specific Time Period")
+    selected_start_date = st.date_input("Select Start Date", df["Date of Sale"].min())
+    selected_end_date = st.date_input("Select End Date", df["Date of Sale"].max())
+
+    demand_df = df[(df["Date of Sale"] >= pd.to_datetime(selected_start_date)) & (df["Date of Sale"] <= pd.to_datetime(selected_end_date))]
+    if not demand_df.empty:
+        most_demanded_product = demand_df.groupby("Product Name")["Sales Quantity"].sum().idxmax()
+        st.write(f"Most Demanded Product: {most_demanded_product}")
+    else:
+        st.write("No sales data available for the selected period.")
+
+    # Daily, Weekly, Yearly Sales Report
+    st.header("Sales Reports")
+    df["Sale Year"] = df["Date of Sale"].dt.year
+    df["Sale Week"] = df["Date of Sale"].dt.isocalendar().week
+    df["Sale Day"] = df["Date of Sale"].dt.date
+
+    sales_daily = df.groupby("Sale Day")["Sales Quantity"].sum()
+    sales_weekly = df.groupby("Sale Week")["Sales Quantity"].sum()
+    sales_yearly = df.groupby("Sale Year")["Sales Quantity"].sum()
+
+    st.subheader("Daily Sales")
+    st.bar_chart(sales_daily)
+
+    st.subheader("Weekly Sales")
+    st.bar_chart(sales_weekly)
+
+    st.subheader("Yearly Sales")
+    st.bar_chart(sales_yearly)
+
+    # Expiry, Purchase, and Next Stock Purchase Info
+    st.header("Stock Information")
+    st.write(df[["Company", "Product Name", "Manufacture Date", "Expiry Date", "Date of Purchase", "Next Stock Purchase"]])
+
+    # Selling Price and Purchase Price
+    st.header("Selling and Purchase Prices")
+    price_data = df.groupby("Company")[["Selling Price", "Purchase Price"]].mean()
+    st.bar_chart(price_data)
+
+    # Profit Analysis
+    st.header("Profit Analysis")
+    df["Profit per Unit"] = df["Selling Price"] - df["Purchase Price"]
+    df["Total Profit"] = df["Profit per Unit"] * df["Sales Quantity"]
+    profit_by_company = df.groupby("Company")["Total Profit"].sum()
+    st.bar_chart(profit_by_company)

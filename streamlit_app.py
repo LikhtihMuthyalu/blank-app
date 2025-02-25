@@ -2,17 +2,22 @@ import streamlit as st
 import pandas as pd
 from fpdf import FPDF
 
-# Initialize customer data
+# Initialize in-memory data structures
 if "customers" not in st.session_state:
-    st.session_state["customers"] = pd.DataFrame({
-        "Contact": [],
-        "Name": [],
-        "Age": [],
-        "Gender": [],
+    st.session_state["customers"] = []
+
+if "purchase_history" not in st.session_state:
+    st.session_state["purchase_history"] = []
+
+if "suppliers" not in st.session_state:
+    st.session_state["suppliers"] = pd.DataFrame({
+        "Supplier Name": [],
+        "Contact Info": [],
+        "Pricing Terms": [],
+        "Products Supplied": [],
         "Address": []
     })
 
-# Initialize purchase order data
 if "purchase_orders" not in st.session_state:
     st.session_state["purchase_orders"] = pd.DataFrame({
         "Order ID": [],
@@ -24,17 +29,6 @@ if "purchase_orders" not in st.session_state:
         "Lead Time (days)": []
     })
 
-# Initialize supplier data
-if "suppliers" not in st.session_state:
-    st.session_state["suppliers"] = pd.DataFrame({
-        "Supplier Name": [],
-        "Contact Info": [],
-        "Pricing Terms": [],
-        "Products Supplied": [],
-        "Address": []
-    })
-
-# Initialize invoice data
 if "invoices" not in st.session_state:
     st.session_state["invoices"] = pd.DataFrame({
         "Invoice ID": [],
@@ -51,32 +45,101 @@ if "invoices" not in st.session_state:
         "Payment Status": []
     })
 
+# Streamlit App Configurations
+st.set_page_config(layout="wide")  # Makes the layout wider
+
 # Function to add a customer
 def add_customer():
-    with st.form("add_customer_form"):
-        contact = st.text_input("Customer Contact", max_chars=10)
-        name = st.text_input("Customer Name")
-        age = st.number_input("Customer Age", min_value=10, max_value=100)
-        gender = st.selectbox("Customer Gender", ["Male", "Female", "Other"])
-        address = st.text_area("Customer Address")
-        submit = st.form_submit_button("Add Customer")
-        
-        if submit:
-            if contact and name:
-                new_customer = pd.DataFrame({
-                    "Contact": [contact],
-                    "Name": [name],
-                    "Age": [age],
-                    "Gender": [gender],
-                    "Address": [address]
-                })
-                st.session_state["customers"] = pd.concat([st.session_state["customers"], new_customer], ignore_index=True)
-                st.success(f"Customer '{name}' added successfully!")
+    st.header("➕ Add Customer")
+    contact = st.text_input("Customer Contact", max_chars=10, key="customer_contact")
+    name = st.text_input("Customer Name", key="customer_name")
+    age = st.number_input("Customer Age", min_value=10, max_value=100, key="customer_age")
+    gender = st.selectbox("Customer Gender", ["Male", "Female", "Other"], key="customer_gender")
+    address = st.text_area("Customer Address", key="customer_address")
+
+    if st.button("💾 Add Customer"):
+        if contact and name and age and gender:
+            if any(c['contact'] == contact for c in st.session_state["customers"]):
+                st.error("📞 Customer with this contact already exists.")
             else:
-                st.error("Customer Contact and Name are required fields.")
+                st.session_state["customers"].append({
+                    "contact": contact,
+                    "name": name,
+                    "age": age,
+                    "gender": gender,
+                    "address": address
+                })
+                st.success("✔️ Customer added successfully!")
+
+# Function to view customers
+def view_customers():
+    st.header("👀 View Customers")
+    if st.session_state["customers"]:
+        customer_df = pd.DataFrame(st.session_state["customers"])
+        st.dataframe(customer_df)
+    else:
+        st.info("🧐 No customers found.")
+
+# Function to delete a customer
+def delete_customer():
+    st.header("🗑️ Delete Customer")
+    del_contact = st.text_input("Enter Customer Contact to Delete", max_chars=10)
+    if st.button("🗑️ Delete Customer"):
+        if del_contact:
+            for customer in st.session_state["customers"]:
+                if customer['contact'] == del_contact:
+                    st.session_state["customers"].remove(customer)
+                    st.success("✅ Customer deleted successfully!")
+                    break
+            else:
+                st.error("❌ Customer not found.")
+
+# Function to add a purchase record
+def add_purchase():
+    st.header("🛒 Add Purchase Records")
+    contact = st.text_input("Customer Contact", max_chars=10, key="add_purchase_contact")
+    item = st.text_input("Item Name")
+    quantity = st.number_input("Quantity", min_value=1, step=1)
+    price = st.number_input("Price", min_value=0.01, step=0.01, format="%.2f")
+    date = st.date_input("Purchase Date")
+
+    if st.button("💾 Add Purchase"):
+        if contact and item:
+            if any(c['contact'] == contact for c in st.session_state["customers"]):
+                st.session_state["purchase_history"].append({
+                    "contact": contact,
+                    "item": item,
+                    "quantity": quantity,
+                    "price": price,
+                    "date": str(date)
+                })
+                st.success("✔️ Purchase record added successfully!")
+            else:
+                st.error("❌ The contact number does not exist in the customers' list.")
+
+# Function to view purchase history
+def view_purchase_history():
+    st.header("📝 Purchase History")
+    if st.session_state["purchase_history"]:
+        purchase_df = pd.DataFrame(st.session_state["purchase_history"])
+        grouped_purchase_df = purchase_df.groupby("contact").agg({
+            "item": lambda x: ", ".join(x),
+            "quantity": "sum",
+            "price": "sum",
+            "date": lambda x: ", ".join(x)
+        }).reset_index()
+
+        # Format Price as currency
+        grouped_purchase_df['price'] = grouped_purchase_df['price'].apply(lambda x: f"₹{x:.2f}")
+        grouped_purchase_df['quantity'] = grouped_purchase_df['quantity'].astype(int)
+
+        st.dataframe(grouped_purchase_df)
+    else:
+        st.info("🧐 No purchase records found.")
 
 # Function to add a supplier
 def add_supplier():
+    st.header("➕ Add Supplier")
     with st.form("add_supplier_form"):
         name = st.text_input("Supplier Name")
         contact = st.text_input("Contact Info")
@@ -101,6 +164,7 @@ def add_supplier():
 
 # Function to add a purchase order
 def add_purchase_order():
+    st.header("🛒 Add Purchase Order")
     supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
     selected_supplier = st.selectbox("Select Supplier", supplier_names)
     order_date = st.date_input("Order Date")
@@ -211,45 +275,130 @@ def add_invoice():
 
 # Main application
 def main():
-    st.title("Supplier and Customer Management System")
-    
-    tabs = st.tabs(["Customer Management", "Supplier Management", "Purchase Orders", "Invoices"])
-    
-    with tabs[0]:
-        st.subheader("👨‍⚕️ Customer Management")
-        add_customer()
-        st.subheader("📋 View All Customers")
-        if st.session_state["customers"].empty:
-            st.info("No customers available. Add some customers to get started.")
-        else:
-            st.table(st.session_state["customers"])  # Non-scrollable table
-    
-    with tabs[1]:
-        st.subheader("📦 Supplier Management")
-        add_supplier()
-        st.subheader("📋 View All Suppliers")
-        if st.session_state["suppliers"].empty:
-            st.info("No suppliers available. Add some suppliers to get started.")
-        else:
-            st.table(st.session_state["suppliers"])  # Non-scrollable table
-    
-    with tabs[2]:
-        st.subheader("🛒 Add Purchase Order")
-        add_purchase_order()
-        st.subheader("📋 View Purchase Orders")
-        if st.session_state["purchase_orders"].empty:
-            st.info("No purchase orders available.")
-        else:
-            st.table(st.session_state["purchase_orders"])  # Non-scrollable table
-    
-    with tabs[3]:
-        st.subheader("🧾 Generate Invoice")
-        add_invoice()
-        st.subheader("📋 View Invoices")
-        if st.session_state["invoices"].empty:
-            st.info("No invoices generated.")
-        else:
-            st.table(st.session_state["invoices"])  # Non-scrollable table
+    st.sidebar.title("📋 Navigation")
+    page = st.sidebar.radio("Go to", ["Customer Management", "Purchase History", "Pharmacy Financial Advisory", "Supplier Management", "Invoice Management"])
 
-if __name__ == "__main__":
-    main()
+    if page == "Customer Management":
+        add_customer()
+        view_customers()
+        delete_customer()
+
+    elif page == "Purchase History":
+        tab1, tab2 = st.tabs(["➕ Add Purchase", "📝 View Purchase History"])
+        with tab1:
+            add_purchase()
+        with tab2:
+            view_purchase_history()
+
+    elif page == "Pharmacy Financial Advisory":
+        st.title("Pharmacy Financial Advisory Module")
+        # Sample DataFrame structure
+        data = {
+            "Company": ["MICRO LABS LTD", "Cadila Healthcare Ltd", "Enzymes Pharmaceuticals", "Sun Pharmaceutical Industries"],
+            "Product Name": ["DOLO 650", "Albendazole", "ASPIRIN", "PARACETAMOL"],
+            "Product Description": [
+                "DOLO 650 is a widely used analgesic and antipyretic.",
+                "Albendazole is an anthelmintic used to treat parasitic worm infections.",
+                "ASPIRIN is a pain reliever and anti-inflammatory drug.",
+                "PARACETAMOL is a common pain reliever and fever reducer."
+            ],
+            "Usage": [
+                "Used for fever, body aches, and pain relief.",
+                "Used for treating worm infections such as tapeworm and roundworm.",
+                "Used to reduce pain, inflammation, and prevent heart attacks.",
+                "Used for headache, fever, and mild to moderate pain."
+            ],
+            "Manufacture Date": ["2024-01-01", "2024-02-15", "2024-01-20", "2024-03-10"],
+            "Expiry Date": ["2026-01-01", "2026-02-15", "2026-01-20", "2026-03-10"],
+            "Date of Purchase": ["2024-04-01", "2024-04-10", "2024-04-05", "2024-04-15"],
+            "Next Stock Purchase": ["2024-05-01", "2024-05-10", "2024-05-05", "2024-05-15"],
+            "Selling Price": [150, 200, 180, 250],
+            "Purchase Price": [100, 150, 130, 200],
+            "Sales Quantity": [10, 5, 8, 12],
+            "Purchase Quantity": [20, 10, 15, 25],
+            "Date of Sale": ["2024-04-02", "2024-04-11", "2024-04-06", "2024-04-16"]
+        }
+
+        df = pd.DataFrame(data)
+        df["Manufacture Date"] = pd.to_datetime(df["Manufacture Date"])
+        df["Expiry Date"] = pd.to_datetime(df["Expiry Date"])
+        df["Date of Purchase"] = pd.to_datetime(df["Date of Purchase"])
+        df["Next Stock Purchase"] = pd.to_datetime(df["Next Stock Purchase"])
+        df["Date of Sale"] = pd.to_datetime(df["Date of Sale"])
+
+        # Sales Report
+        st.header("Company-wise Sales Report")
+        company_sales = df.groupby("Company")["Sales Quantity"].sum()
+        st.bar_chart(company_sales)
+
+        # Products under each company
+        st.header("Products by Company")
+        for company, group in df.groupby("Company"):
+            st.subheader(company)
+            st.write(group[["Product Name", "Product Description", "Usage", "Selling Price", "Purchase Price"]])
+
+        # Product-wise Sales and Purchase Report
+        st.header("Product-wise Sales and Purchase Report")
+        product_sales = df.groupby("Product Name")["Sales Quantity"].sum()
+        product_purchases = df.groupby("Product Name")["Purchase Quantity"].sum()
+
+        st.subheader("Sales per Product")
+        st.bar_chart(product_sales)
+
+        st.subheader("Purchases per Product")
+        st.bar_chart(product_purchases)
+
+        # Most Selling Product
+        st.header("Most Selling Product")
+        most_selling_product = df.loc[df["Sales Quantity"].idxmax(), ["Product Name", "Sales Quantity"]]
+        st.write(most_selling_product)
+
+        # Product in Demand During a Specific Time Period
+        st.header("Product in Demand During a Specific Time Period")
+        selected_start_date = st.date_input("Select Start Date", df["Date of Sale"].min())
+        selected_end_date = st.date_input("Select End Date", df["Date of Sale"].max())
+
+        demand_df = df[(df["Date of Sale"] >= pd.to_datetime(selected_start_date)) & (df["Date of Sale"] <= pd.to_datetime(selected_end_date))]
+        if not demand_df.empty:
+            most_demanded_product = demand_df.groupby("Product Name")["Sales Quantity"].sum().idxmax()
+            st.write(f"Most Demanded Product: {most_demanded_product}")
+        else:
+            st.write("No sales data available for the selected period.")
+
+        # Daily, Weekly, Yearly Sales Report
+        st.header("Sales Reports")
+        df["Sale Year"] = df["Date of Sale"].dt.year
+        df["Sale Week"] = df["Date of Sale"].dt.isocalendar().week
+        df["Sale Day"] = df["Date of Sale"].dt.date
+
+        sales_daily = df.groupby("Sale Day")["Sales Quantity"].sum()
+        sales_weekly = df.groupby("Sale Week")["Sales Quantity"].sum()
+        sales_yearly = df.groupby("Sale Year")["Sales Quantity"].sum()
+
+        st.subheader("Daily Sales")
+        st.bar_chart(sales_daily)
+
+        st.subheader("Weekly Sales")
+        st.bar_chart(sales_weekly)
+
+        st.subheader("Yearly Sales")
+        st.bar_chart(sales_yearly)
+
+        # Expiry, Purchase, and Next Stock Purchase Info
+        st.header("Stock Information")
+        st.write(df[["Company", "Product Name", "Manufacture Date", "Expiry Date", "Date of Purchase", "Next Stock Purchase"]])
+
+        # Selling Price and Purchase Price
+        st.header("Selling and Purchase Prices")
+        price_data = df.groupby("Company")[["Selling Price", "Purchase Price"]].mean()
+        st.bar_chart(price_data)
+
+        # Profit Analysis
+        st.header("Profit Analysis")
+        df["Profit per Unit"] = df["Selling Price"] - df["Purchase Price"]
+        df["Total Profit"] = df["Profit per Unit"] * df["Sales Quantity"]
+        profit_by_company = df.groupby("Company")["Total Profit"].sum()
+        st.bar_chart(profit_by_company)
+
+    elif page == "Supplier Management":
+        st.title

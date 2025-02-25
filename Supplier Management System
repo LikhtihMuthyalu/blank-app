@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from fpdf import FPDF
 
 # Initialize supplier data
 if "suppliers" not in st.session_state:
@@ -7,17 +8,8 @@ if "suppliers" not in st.session_state:
         "Supplier Name": [],
         "Contact Info": [],
         "Pricing Terms": [],
-        "Products Supplied": []
-    })
-
-# Initialize supplier performance data
-if "supplier_performance" not in st.session_state:
-    st.session_state["supplier_performance"] = pd.DataFrame({
-        "Supplier Name": [],
-        "Delivery Timeliness": [],
-        "Product Quality": [],
-        "Pricing Consistency": [],
-        "Overall Rating": []
+        "Products Supplied": [],
+        "Address": []  # New column added for address
     })
 
 # Initialize purchase order data
@@ -32,128 +24,49 @@ if "purchase_orders" not in st.session_state:
         "Lead Time (days)": []
     })
 
+# Initialize invoice data
+if "invoices" not in st.session_state:
+    st.session_state["invoices"] = pd.DataFrame({
+        "Invoice ID": [],
+        "Order ID": [],
+        "Supplier Name": [],
+        "Invoice Date": [],
+        "Items": [],
+        "Subtotal": [],
+        "Tax (%)": [],
+        "Tax Amount": [],
+        "Discount": [],
+        "Shipping Cost": [],
+        "Total Amount": [],
+        "Payment Status": []
+    })
+
 # Function to add a supplier
 def add_supplier():
-    st.subheader("➕ Add New Supplier")
     with st.form("add_supplier_form"):
         name = st.text_input("Supplier Name")
         contact = st.text_input("Contact Info")
         pricing = st.text_area("Pricing Terms")
         products = st.text_area("Products Supplied (comma-separated)")
+        address = st.text_area("Address")
         submit = st.form_submit_button("Add Supplier")
         
         if submit:
             if name and contact:
-                # Add new supplier to the DataFrame
                 new_supplier = pd.DataFrame({
                     "Supplier Name": [name],
                     "Contact Info": [contact],
                     "Pricing Terms": [pricing],
-                    "Products Supplied": [products]
+                    "Products Supplied": [products],
+                    "Address": [address]
                 })
-                # Concatenate the new supplier to the existing suppliers
                 st.session_state["suppliers"] = pd.concat([st.session_state["suppliers"], new_supplier], ignore_index=True)
-                
-                # Success message
                 st.success(f"Supplier '{name}' added successfully!")
-                
             else:
                 st.error("Supplier Name and Contact Info are required fields.")
 
-# Function to view all suppliers
-def view_suppliers():
-    st.subheader("📋 View All Suppliers")
-    if st.session_state["suppliers"].empty:
-        st.info("No suppliers available. Add some suppliers to get started.")
-    else:
-        st.dataframe(st.session_state["suppliers"])
-
-# Function to update supplier details
-def update_supplier():
-    st.subheader("✏️ Update Supplier Details")
-    if st.session_state["suppliers"].empty:
-        st.info("No suppliers to update.")
-        return
-    
-    supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
-    selected_supplier = st.selectbox("Select a Supplier to Update", supplier_names)
-    
-    if selected_supplier:
-        supplier_data = st.session_state["suppliers"][st.session_state["suppliers"]["Supplier Name"] == selected_supplier]
-        current_contact = supplier_data["Contact Info"].values[0]
-        current_pricing = supplier_data["Pricing Terms"].values[0]
-        current_products = supplier_data["Products Supplied"].values[0]
-        
-        new_contact = st.text_input("Contact Info", value=current_contact)
-        new_pricing = st.text_area("Pricing Terms", value=current_pricing)
-        new_products = st.text_area("Products Supplied (comma-separated)", value=current_products)
-        
-        if st.button("Update Supplier"):
-            st.session_state["suppliers"].loc[st.session_state["suppliers"]["Supplier Name"] == selected_supplier, ["Contact Info", "Pricing Terms", "Products Supplied"]] = [new_contact, new_pricing, new_products]
-            st.success(f"Supplier '{selected_supplier}' updated successfully!")
-
-# Function to delete a supplier
-def delete_supplier():
-    st.subheader("🗑️ Delete Supplier")
-    if st.session_state["suppliers"].empty:
-        st.info("No suppliers to delete.")
-        return
-
-    supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
-    selected_supplier = st.selectbox("Select a Supplier to Delete", supplier_names)
-
-    if selected_supplier and st.button("Delete Supplier"):
-        st.session_state["suppliers"] = st.session_state["suppliers"][st.session_state["suppliers"]["Supplier Name"] != selected_supplier]
-        st.success(f"Supplier '{selected_supplier}' deleted successfully!")
-
-# Supplier Performance Rating System
-def rate_supplier_performance():
-    st.subheader("🔍 Rate Supplier Performance")
-    supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
-    selected_supplier = st.selectbox("Select a Supplier to Rate", supplier_names)
-    
-    if selected_supplier:
-        delivery_timeliness = st.slider("Delivery Timeliness (1 to 5)", 1, 5, 3)
-        product_quality = st.slider("Product Quality (1 to 5)", 1, 5, 3)
-        pricing_consistency = st.slider("Pricing Consistency (1 to 5)", 1, 5, 3)
-        
-        overall_rating = (delivery_timeliness + product_quality + pricing_consistency) / 3
-        st.write(f"Overall Rating for {selected_supplier}: {overall_rating:.2f}")
-        
-        if st.button("Save Rating"):
-            # Save the performance data to the session
-            new_rating = pd.DataFrame({
-                "Supplier Name": [selected_supplier],
-                "Delivery Timeliness": [delivery_timeliness],
-                "Product Quality": [product_quality],
-                "Pricing Consistency": [pricing_consistency],
-                "Overall Rating": [overall_rating]
-            })
-            st.session_state["supplier_performance"] = pd.concat(
-                [st.session_state["supplier_performance"], new_rating], ignore_index=True
-            )
-            st.success(f"Performance for '{selected_supplier}' rated successfully!")
-
-# Function to view supplier performance
-def view_supplier_performance():
-    st.subheader("📊 View Supplier Performance")
-    if st.session_state["supplier_performance"].empty:
-        st.info("No performance data available.")
-    else:
-        st.dataframe(st.session_state["supplier_performance"])
-
-# Function to visualize performance (e.g., bar chart for overall rating)
-def visualize_performance():
-    st.subheader("📈 Supplier Performance Visualization")
-    if st.session_state["supplier_performance"].empty:
-        st.info("No performance data available for visualization.")
-    else:
-        performance_data = st.session_state["supplier_performance"]
-        st.bar_chart(performance_data.set_index("Supplier Name")["Overall Rating"])
-
-# Add Purchase Order
+# Function to add a purchase order
 def add_purchase_order():
-    st.subheader("🛒 Add Purchase Order")
     supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
     selected_supplier = st.selectbox("Select Supplier", supplier_names)
     order_date = st.date_input("Order Date")
@@ -170,71 +83,133 @@ def add_purchase_order():
             "Order Status": [order_status],
             "Lead Time (days)": [(expected_delivery_date - order_date).days]
         })
-        
-        # Save new purchase order to session state
-        st.session_state["purchase_orders"] = pd.concat(
-            [st.session_state["purchase_orders"], new_order], ignore_index=True
-        )
+        st.session_state["purchase_orders"] = pd.concat([st.session_state["purchase_orders"], new_order], ignore_index=True)
         st.success("Purchase Order added successfully!")
 
-# View Purchase Orders
-def view_purchase_orders():
-    st.subheader("📋 View Purchase Orders")
-    if st.session_state["purchase_orders"].empty:
-        st.info("No purchase orders available.")
-    else:
-        st.dataframe(st.session_state["purchase_orders"])
+# Function to generate invoice ID
+def generate_invoice_id():
+    return f"INV-{2025000 + len(st.session_state['invoices']) + 1}"
 
-# Update Order Status and Actual Delivery Date
-def update_order_status():
-    st.subheader("✏️ Update Order Status")
-    if st.session_state["purchase_orders"].empty:
-        st.info("No purchase orders to update.")
-        return
+# Function to create a detailed PDF invoice
+def create_invoice_pdf(invoice_id, supplier_name, invoice_date, items, subtotal, tax, tax_amount, discount, shipping, total_amount, payment_status):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(200, 10, "Invoice", ln=True, align="C")
+    pdf.ln(10)
     
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(100, 10, f"Invoice No: {invoice_id}")
+    pdf.cell(100, 10, f"Invoice Date: {invoice_date}", ln=True)
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(100, 10, "From:")
+    pdf.cell(100, 10, "Bill To:", ln=True)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(100, 10, f"{supplier_name}")
+    pdf.cell(100, 10, f"{supplier_name}", ln=True)
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(50, 10, "Description", border=1)
+    pdf.cell(30, 10, "Rate (RS)", border=1)
+    pdf.cell(20, 10, "Qty", border=1)
+    pdf.cell(20, 10, "Tax (%)", border=1)
+    pdf.cell(30, 10, "Discount", border=1)
+    pdf.cell(40, 10, "Amount (RS)", border=1)
+    pdf.ln()
+    
+    pdf.set_font("Arial", "", 12)
+    for item in items:
+        pdf.cell(50, 10, item["name"], border=1)
+        pdf.cell(30, 10, f"{item['rate']:.2f}", border=1)
+        pdf.cell(20, 10, str(item["quantity"]), border=1)
+        pdf.cell(20, 10, f"{item['tax']:.2f}", border=1)
+        pdf.cell(30, 10, f"{item['discount']:.2f}", border=1)
+        pdf.cell(40, 10, f"{item['total']:.2f}", border=1)
+        pdf.ln()
+    
+    pdf.ln(5)
+    pdf.cell(200, 10, f"Subtotal: {subtotal:.2f}", ln=True)
+    pdf.cell(200, 10, f"Tax Amount: {tax_amount:.2f}", ln=True)
+    pdf.cell(200, 10, f"Discount: {discount:.2f}", ln=True)
+    pdf.cell(200, 10, f"Shipping Cost: {shipping:.2f}", ln=True)
+    pdf.cell(200, 10, f"Total Amount: {total_amount:.2f}", ln=True)
+    pdf.cell(200, 10, f"Payment Status: {payment_status}", ln=True)
+    
+    pdf_output = f"invoice_{invoice_id}.pdf"
+    pdf.output(pdf_output)
+    return pdf_output
+
+# Function to add an invoice
+def add_invoice():
     order_ids = st.session_state["purchase_orders"]["Order ID"].tolist()
-    selected_order_id = st.selectbox("Select an Order to Update", order_ids)
+    selected_order = st.selectbox("Select Purchase Order", order_ids)
+    invoice_date = st.date_input("Invoice Date")
+    supplier_name = st.text_input("Supplier Name")
+    payment_status = st.selectbox("Payment Status", ["Paid", "Pending", "Overdue"])
     
-    order_data = st.session_state["purchase_orders"][st.session_state["purchase_orders"]["Order ID"] == selected_order_id]
-    selected_status = order_data["Order Status"].values[0]
-    expected_delivery_date = order_data["Expected Delivery Date"].values[0]
+    num_items = st.number_input("Number of Items", min_value=1, value=1)
+    items = []
+    subtotal = 0
+    st.subheader("Add Items")
+    for i in range(int(num_items)):
+        name = st.text_input(f"Item {i+1} Name", key=f"item_{i}_name")
+        rate = st.number_input(f"Rate (RS)", min_value=0.0, format="%.2f", key=f"item_{i}_rate")
+        quantity = st.number_input(f"Quantity", min_value=1, key=f"item_{i}_quantity")
+        item_tax = st.number_input(f"Tax (%)", min_value=0.0, format="%.2f", key=f"item_{i}_tax")
+        item_discount = st.number_input(f"Discount (USD)", min_value=0.0, format="%.2f", key=f"item_{i}_discount")
+        total = (rate * quantity) + ((rate * quantity) * item_tax / 100) - item_discount
+        if name:
+            items.append({"name": name, "rate": rate, "quantity": quantity, "tax": item_tax, "discount": item_discount, "total": total})
+            subtotal += total
     
-    actual_delivery_date = st.date_input("Actual Delivery Date", value=expected_delivery_date)
-    order_status = st.selectbox("Order Status", ["Pending", "Shipped", "Delivered"], index=["Pending", "Shipped", "Delivered"].index(selected_status))
+    tax_amount = sum(item['total'] * (item['tax'] / 100) for item in items)
+    total_amount = subtotal + tax_amount
     
-    if st.button("Update Order Status"):
-        st.session_state["purchase_orders"].loc[st.session_state["purchase_orders"]["Order ID"] == selected_order_id, ["Order Status", "Actual Delivery Date"]] = [order_status, actual_delivery_date]
-        st.success(f"Order {selected_order_id} updated successfully!")
+    if st.button("Generate Invoice"):
+        invoice_id = generate_invoice_id()
+        pdf_path = create_invoice_pdf(invoice_id, supplier_name, invoice_date, items, subtotal, tax_amount, tax_amount, 0, 0, total_amount, payment_status)
+        with open(pdf_path, "rb") as file:
+            st.download_button(label="Download Invoice PDF", data=file, file_name=pdf_path, mime="application/pdf")
 
-# Main application navigation
+# Main application
 def main():
     st.title("Supplier Management System")
-    menu = st.sidebar.radio("Choose an option:", 
-                            ["View Suppliers", "Add Supplier", "Update Supplier", "Delete Supplier", 
-                             "Rate Supplier Performance", "View Supplier Performance", 
-                             "Add Purchase Order", "View Purchase Orders", "Update Order Status", 
-                             "Visualize Supplier Performance"])
-
-    if menu == "View Suppliers":
-        view_suppliers()
-    elif menu == "Add Supplier":
+    
+    tabs = st.tabs(["View Suppliers", "Add Supplier", "Add Purchase Order", "View Purchase Orders", "Generate Invoice", "View Invoices"])
+    
+    with tabs[0]:
+        st.subheader("📋 View All Suppliers")
+        if st.session_state["suppliers"].empty:
+            st.info("No suppliers available. Add some suppliers to get started.")
+        else:
+            st.table(st.session_state["suppliers"])  # Non-scrollable table
+    
+    with tabs[1]:
         add_supplier()
-    elif menu == "Update Supplier":
-        update_supplier()
-    elif menu == "Delete Supplier":
-        delete_supplier()
-    elif menu == "Rate Supplier Performance":
-        rate_supplier_performance()
-    elif menu == "View Supplier Performance":
-        view_supplier_performance()
-    elif menu == "Add Purchase Order":
+    
+    with tabs[2]:
         add_purchase_order()
-    elif menu == "View Purchase Orders":
-        view_purchase_orders()
-    elif menu == "Update Order Status":
-        update_order_status()
-    elif menu == "Visualize Supplier Performance":
-        visualize_performance()
+    
+    with tabs[3]:
+        st.subheader("📋 View Purchase Orders")
+        if st.session_state["purchase_orders"].empty:
+            st.info("No purchase orders available.")
+        else:
+            st.table(st.session_state["purchase_orders"])  # Non-scrollable table
+    
+    with tabs[4]:
+        add_invoice()
+    
+    with tabs[5]:
+        st.subheader("📋 View Invoices")
+        if st.session_state["invoices"].empty:
+            st.info("No invoices generated.")
+        else:
+            st.table(st.session_state["invoices"])  # Non-scrollable table
 
 if __name__ == "__main__":
     main()

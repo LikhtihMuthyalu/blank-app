@@ -1,0 +1,175 @@
+import streamlit as st
+import pandas as pd
+import uuid
+import re
+
+# Initialize session state for the medicines database
+if 'medicines_db' not in st.session_state:
+    st.session_state.medicines_db = pd.DataFrame({
+        "ID": [str(uuid.uuid4())[:8] for _ in range(10)],
+        "Medicine Name": [
+            "Paracetamol", "Ibuprofen", "Aspirin", "Cetirizine", "Amoxicillin",
+            "Metformin", "Omeprazole", "Losartan", "Atorvastatin", "Naproxen"
+        ],
+        "Purpose": [
+            "Pain Relief", "Anti-inflammatory", "Blood Thinner", "Allergy Relief", "Antibiotic",
+            "Diabetes Control", "Acid Reflux", "Blood Pressure Control", "Cholesterol Control", "Pain Relief"
+        ],
+        "Legal Status": [
+            "OTC", "OTC", "OTC", "OTC", "Prescription",
+            "Prescription", "Prescription", "Prescription", "Prescription", "OTC"
+        ],
+        "Alternatives": [
+            "Acetaminophen", "Naproxen", "Clopidogrel", "Loratadine", "Ciprofloxacin",
+            "Gliclazide", "Pantoprazole", "Valsartan", "Rosuvastatin", "Ibuprofen"
+        ],
+        "Detailed Description": [
+            "Used for pain relief and fever reduction. Overdoses can cause liver damage.",
+            "NSAID for pain relief, fever reduction, and inflammation control.",
+            "Pain reliever, anti-inflammatory, and blood thinner; prevents heart attacks.",
+            "Antihistamine for allergy relief like sneezing and itchy eyes.",
+            "Prescription antibiotic for bacterial infections like respiratory issues.",
+            "Diabetes medication to help control blood sugar levels.",
+            "Reduces stomach acid for acid reflux and ulcers.",
+            "Lowers blood pressure and protects kidneys in diabetic patients.",
+            "Cholesterol-lowering medication to reduce heart disease risk.",
+            "NSAID for pain relief, commonly used for arthritis and muscle pain."
+        ]
+    })
+
+medicines_db = st.session_state.medicines_db
+
+# Sidebar Navigation with Icons
+st.sidebar.title("🗂️ Navigation")
+page = st.sidebar.radio("Go to", [
+    "🏠 Home", "🔍 Medicine Search", "📊 Medicine Database", "⚖️ Medicine Comparison", "➕ Add Medicine", "🗑️ Delete Medicine", "✏️ Update Medicine"
+])
+
+if page == "🏠 Home":
+    st.title("💊 Clinical Advisor")
+    st.subheader("Your Personal Medicine Guide")
+    st.markdown(""" 
+    - **🔎 Search and compare medicines.**
+    - **📜 Check legal status and alternative options.**
+    - **📋 Manage your medicine database easily.**
+    """)
+    st.image("https://t3.ftcdn.net/jpg/03/36/92/66/360_F_336926699_hsKUK1gdTZ5esb1LAUt5PhOmLEkstVOR.jpg", caption="Stay safe, stay informed!")
+
+elif page == "🔍 Medicine Search":
+    st.title("🔍 Medicine Search")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        search_query = st.text_input("Search for a medicine", placeholder="Type medicine name...")
+    with col2:
+        legal_filter = st.selectbox("Filter by Legal Status", ["All", "OTC", "Prescription"], index=0)
+    
+    filtered_medicines = medicines_db
+    if search_query:
+        filtered_medicines = filtered_medicines[filtered_medicines["Medicine Name"].str.contains(search_query, case=False, na=False)]
+    if legal_filter != "All":
+        filtered_medicines = filtered_medicines[filtered_medicines["Legal Status"] == legal_filter]
+    
+    if not filtered_medicines.empty:
+        selected_medicine = st.selectbox("Select Medicine", filtered_medicines["Medicine Name"])
+        medicine_details = medicines_db[medicines_db["Medicine Name"] == selected_medicine].iloc[0]
+        st.write(f"**🆔 ID:** {medicine_details['ID']}")
+        st.write(f"**💊 Name:** {medicine_details['Medicine Name']}")
+        st.write(f"**🔹 Purpose:** {medicine_details['Purpose']}")
+        st.write(f"**📜 Legal Status:** {medicine_details['Legal Status']}")
+        st.write(f"**🔄 Alternatives:** {medicine_details['Alternatives']}")
+        st.write(f"**📖 Description:** {medicine_details['Detailed Description']}")
+    else:
+        st.warning("⚠️ No medicine found. Try adjusting your search criteria.")
+
+elif page == "➕ Add Medicine":
+    st.title("➕ Add Medicine")
+    
+    with st.form("add_medicine_form", clear_on_submit=True):
+        new_name = st.text_input("Medicine Name").strip()
+        new_purpose = st.text_input("Purpose").strip()
+        new_legal_status = st.selectbox("Legal Status", ["OTC", "Prescription"])
+        new_alternatives = st.text_input("Alternatives").strip()
+        new_description = st.text_area("Detailed Description").strip()
+        submitted = st.form_submit_button("✅ Add Medicine")
+        
+        if submitted:
+            if not new_name or new_name in medicines_db["Medicine Name"].values or not re.match("^[a-zA-Z0-9 ]+$", new_name):
+                st.error("🚨 Invalid medicine name! Ensure it's unique and contains only letters/numbers.")
+            elif not new_purpose or not new_description:
+                st.error("🚨 Please fill out all fields, including Purpose and Description.")
+            else:
+                new_data = pd.DataFrame([{
+                    "ID": str(uuid.uuid4())[:8], 
+                    "Medicine Name": new_name, 
+                    "Purpose": new_purpose, 
+                    "Legal Status": new_legal_status, 
+                    "Alternatives": new_alternatives, 
+                    "Detailed Description": new_description 
+                }])
+                st.session_state.medicines_db = pd.concat([st.session_state.medicines_db, new_data], ignore_index=True)
+                st.success(f"✅ Medicine '{new_name}' added successfully!")
+
+elif page == "✏️ Update Medicine":
+    st.title("✏️ Update Medicine")
+    
+    medicine_to_update = st.selectbox("Select Medicine to Update", medicines_db["Medicine Name"].unique())
+    medicine_details = medicines_db[medicines_db["Medicine Name"] == medicine_to_update].iloc[0]
+    
+    with st.form("update_medicine_form", clear_on_submit=True):
+        updated_name = st.text_input("Medicine Name", value=medicine_details["Medicine Name"]).strip()
+        updated_purpose = st.text_input("Purpose", value=medicine_details["Purpose"]).strip()
+        updated_legal_status = st.selectbox("Legal Status", ["OTC", "Prescription"], index=["OTC", "Prescription"].index(medicine_details["Legal Status"]))
+        updated_alternatives = st.text_input("Alternatives", value=medicine_details["Alternatives"]).strip()
+        updated_description = st.text_area("Detailed Description", value=medicine_details["Detailed Description"]).strip()
+        submitted = st.form_submit_button("✅ Update Medicine")
+        
+        if submitted:
+            if not updated_name or updated_name in medicines_db["Medicine Name"].values or not re.match("^[a-zA-Z0-9 ]+$", updated_name):
+                st.error("🚨 Invalid medicine name! Ensure it's unique and contains only letters/numbers.")
+            elif not updated_purpose or not updated_description:
+                st.error("🚨 Please fill out all fields, including Purpose and Description.")
+            else:
+                # Update the selected medicine details
+                medicines_db.loc[medicines_db["Medicine Name"] == medicine_to_update, ["Medicine Name", "Purpose", "Legal Status", "Alternatives", "Detailed Description"]] = [updated_name, updated_purpose, updated_legal_status, updated_alternatives, updated_description]
+                st.session_state.medicines_db = medicines_db
+                st.success(f"✅ Medicine '{updated_name}' updated successfully!")
+
+elif page == "📊 Medicine Database":
+    st.title("📊 Medicine Database")
+    st.dataframe(medicines_db.style.set_properties(**{'text-align': 'left'}))
+    
+    csv = medicines_db.to_csv(index=False).encode('utf-8')
+    st.download_button(label="📥 Download Database as CSV", data=csv, file_name='medicines_db.csv', mime='text/csv')
+
+elif page == "⚖️ Medicine Comparison":
+    st.title("⚖️ Medicine Comparison")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        med1 = st.selectbox("Select first medicine", medicines_db["Medicine Name"].unique(), key="comp1")
+    with col2:
+        med2 = st.selectbox("Select second medicine", medicines_db["Medicine Name"].unique(), key="comp2")
+    
+    if med1 and med2:
+        details1 = medicines_db[medicines_db["Medicine Name"] == med1].iloc[0]
+        details2 = medicines_db[medicines_db["Medicine Name"] == med2].iloc[0]
+        
+        comp_df = pd.DataFrame({
+            "Attribute": ["Medicine Name", "Purpose", "Legal Status", "Alternatives", "Description"],
+            f"{med1}": [details1["Medicine Name"], details1["Purpose"], details1["Legal Status"], details1["Alternatives"], details1["Detailed Description"]],
+            f"{med2}": [details2["Medicine Name"], details2["Purpose"], details2["Legal Status"], details2["Alternatives"], details2["Detailed Description"]]
+        })
+        
+        st.table(comp_df)
+
+elif page == "🗑️ Delete Medicine":
+    st.title("🗑️ Delete Medicine")
+    medicine_to_delete = st.selectbox("Select Medicine to Delete", medicines_db["Medicine Name"].unique())
+    
+    if st.button("🗑️ Delete Medicine", key="delete_button", help="This action is irreversible"):
+        confirm_delete = st.checkbox(f"Are you sure you want to delete '{medicine_to_delete}'?")
+        if confirm_delete:
+            st.session_state.medicines_db = medicines_db[medicines_db["Medicine Name"] != medicine_to_delete].reset_index(drop=True)
+            st.success(f"✅ Medicine '{medicine_to_delete}' deleted successfully!")
+        else:
+            st.warning("❌ Deletion not confirmed. Medicine not deleted.")

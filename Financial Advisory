@@ -1,60 +1,90 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import datetime
+import sqlite3
 
-# Sample DataFrame structure
-data = {
-    "Company": ["MICRO LABS LTD", "Cadila Healthcare Ltd", "Enzymes Pharmaceuticals", "Sun Pharmaceutical Industries"],
-    "Product Name": ["DOLO 650", "Albendazole", "ASPIRIN", "PARACETAMOL"],
-    "Product Description": [
-        "DOLO 650 is a widely used analgesic and antipyretic.",
-        "Albendazole is an anthelmintic used to treat parasitic worm infections.",
-        "ASPIRIN is a pain reliever and anti-inflammatory drug.",
-        "PARACETAMOL is a common pain reliever and fever reducer."
-    ],
-    "Usage": [
-        "Used for fever, body aches, and pain relief.",
-        "Used for treating worm infections such as tapeworm and roundworm.",
-        "Used to reduce pain, inflammation, and prevent heart attacks.",
-        "Used for headache, fever, and mild to moderate pain."
-    ],
-    "Manufacture Date": ["2024-01-01", "2024-02-15", "2024-01-20", "2024-03-10"],
-    "Expiry Date": ["2026-01-01", "2026-02-15", "2026-01-20", "2026-03-10"],
-    "Date of Purchase": ["2024-04-01", "2024-04-10", "2024-04-05", "2024-04-15"],
-    "Next Stock Purchase": ["2024-05-01", "2024-05-10", "2024-05-05", "2024-05-15"],
-    "Selling Price": [150, 200, 180, 250],
-    "Purchase Price": [100, 150, 130, 200],
-    "Sales Quantity": [10, 5, 8, 12],
-    "Purchase Quantity": [20, 10, 15, 25],
-    "Date of Sale": ["2024-04-02", "2024-04-11", "2024-04-06", "2024-04-16"]
-}
+# Database connection
+conn = sqlite3.connect("pharmacy.db", check_same_thread=False)
+c = conn.cursor()
 
-df = pd.DataFrame(data)
-df["Manufacture Date"] = pd.to_datetime(df["Manufacture Date"])
-df["Expiry Date"] = pd.to_datetime(df["Expiry Date"])
-df["Date of Purchase"] = pd.to_datetime(df["Date of Purchase"])
-df["Next Stock Purchase"] = pd.to_datetime(df["Next Stock Purchase"])
-df["Date of Sale"] = pd.to_datetime(df["Date of Sale"])
+# Create table if not exists
+c.execute('''CREATE TABLE IF NOT EXISTS inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company TEXT,
+                product_name TEXT,
+                product_description TEXT,
+                usage TEXT,
+                manufacture_date TEXT,
+                expiry_date TEXT,
+                date_of_purchase TEXT,
+                next_stock_purchase TEXT,
+                selling_price REAL,
+                purchase_price REAL,
+                sales_quantity INTEGER,
+                purchase_quantity INTEGER,
+                date_of_sale TEXT
+            )''')
+conn.commit()
+
+# Load data from SQLite
+def load_data():
+    df = pd.read_sql_query("SELECT * FROM inventory", conn)
+    df["manufacture_date"] = pd.to_datetime(df["manufacture_date"])
+    df["expiry_date"] = pd.to_datetime(df["expiry_date"])
+    df["date_of_purchase"] = pd.to_datetime(df["date_of_purchase"])
+    df["next_stock_purchase"] = pd.to_datetime(df["next_stock_purchase"])
+    df["date_of_sale"] = pd.to_datetime(df["date_of_sale"])
+    return df
+
+df = load_data()
 
 # Streamlit UI
 st.title("Pharmacy Financial Advisory Module")
 
+# Form to enter new product details
+st.header("Enter New Product Details")
+with st.form("product_form"):
+    company = st.text_input("Company")
+    product_name = st.text_input("Product Name")
+    product_description = st.text_area("Product Description")
+    usage = st.text_area("Usage")
+    manufacture_date = st.date_input("Manufacture Date")
+    expiry_date = st.date_input("Expiry Date")
+    date_of_purchase = st.date_input("Date of Purchase")
+    next_stock_purchase = st.date_input("Next Stock Purchase")
+    selling_price = st.number_input("Selling Price", min_value=0.0)
+    purchase_price = st.number_input("Purchase Price", min_value=0.0)
+    sales_quantity = st.number_input("Sales Quantity", min_value=0, step=1)
+    purchase_quantity = st.number_input("Purchase Quantity", min_value=0, step=1)
+    date_of_sale = st.date_input("Date of Sale")
+    submit_button = st.form_submit_button("Add Product")
+
+    if submit_button:
+        c.execute('''INSERT INTO inventory (company, product_name, product_description, usage, manufacture_date, expiry_date, 
+                    date_of_purchase, next_stock_purchase, selling_price, purchase_price, sales_quantity, purchase_quantity, date_of_sale) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
+                  (company, product_name, product_description, usage, manufacture_date, expiry_date, date_of_purchase, 
+                   next_stock_purchase, selling_price, purchase_price, sales_quantity, purchase_quantity, date_of_sale))
+        conn.commit()
+        st.success("Product added successfully!")
+
+# Reload data
+df = load_data()
+
 # Sales Report
 st.header("Company-wise Sales Report")
-company_sales = df.groupby("Company")["Sales Quantity"].sum()
+company_sales = df.groupby("company")["sales_quantity"].sum()
 st.bar_chart(company_sales)
 
 # Products under each company
 st.header("Products by Company")
-for company, group in df.groupby("Company"):
+for company, group in df.groupby("company"):
     st.subheader(company)
-    st.write(group[["Product Name", "Product Description", "Usage", "Selling Price", "Purchase Price"]])
+    st.write(group[["product_name", "product_description", "usage", "selling_price", "purchase_price"]])
 
 # Product-wise Sales and Purchase Report
 st.header("Product-wise Sales and Purchase Report")
-product_sales = df.groupby("Product Name")["Sales Quantity"].sum()
-product_purchases = df.groupby("Product Name")["Purchase Quantity"].sum()
+product_sales = df.groupby("product_name")["sales_quantity"].sum()
+product_purchases = df.groupby("product_name")["purchase_quantity"].sum()
 
 st.subheader("Sales per Product")
 st.bar_chart(product_sales)
@@ -64,27 +94,33 @@ st.bar_chart(product_purchases)
 
 # Most Selling Product
 st.header("Most Selling Product")
-most_selling_product = df.loc[df["Sales Quantity"].idxmax(), ["Product Name", "Sales Quantity"]]
-st.write(most_selling_product)
+if not df.empty:
+    most_selling_product = df.loc[df["sales_quantity"].idxmax(), ["product_name", "sales_quantity"]]
+    st.write(most_selling_product)
 
 # Product in Demand During a Specific Time Period
 st.header("Product in Demand During a Specific Time Period")
-selected_start_date = st.date_input("Select Start Date", df["Date of Sale"].min())
-selected_end_date = st.date_input("Select End Date", df["Date of Sale"].max())
+if df["date_of_sale"].notna().sum() > 0:  # Check if there are valid dates
+    selected_start_date = st.date_input("Select Start Date", df["date_of_sale"].dropna().min())
+    selected_end_date = st.date_input("Select End Date", df["date_of_sale"].dropna().max())
+else:
+    selected_start_date = st.date_input("Select Start Date", pd.to_datetime("2024-01-01"))
+    selected_end_date = st.date_input("Select End Date", pd.to_datetime("2024-12-31"))
 
-demand_df = df[(df["Date of Sale"] >= pd.to_datetime(selected_start_date)) & (df["Date of Sale"] <= pd.to_datetime(selected_end_date))]
-most_demanded_product = demand_df.groupby("Product Name")["Sales Quantity"].sum().idxmax()
-st.write(f"Most Demanded Product: {most_demanded_product}")
+demand_df = df[(df["date_of_sale"] >= pd.to_datetime(selected_start_date)) & (df["date_of_sale"] <= pd.to_datetime(selected_end_date))]
+if not demand_df.empty:
+    most_demanded_product = demand_df.groupby("product_name")["sales_quantity"].sum().idxmax()
+    st.write(f"Most Demanded Product: {most_demanded_product}")
 
-# Daily, Weekly, Yearly Sales Report
+# Sales Reports
 st.header("Sales Reports")
-df["Sale Year"] = df["Date of Sale"].dt.year
-df["Sale Week"] = df["Date of Sale"].dt.isocalendar().week
-df["Sale Day"] = df["Date of Sale"].dt.date
+df["sale_year"] = df["date_of_sale"].dt.year
+df["sale_week"] = df["date_of_sale"].dt.isocalendar().week
+df["sale_day"] = df["date_of_sale"].dt.date
 
-sales_daily = df.groupby("Sale Day")["Sales Quantity"].sum()
-sales_weekly = df.groupby("Sale Week")["Sales Quantity"].sum()
-sales_yearly = df.groupby("Sale Year")["Sales Quantity"].sum()
+sales_daily = df.groupby("sale_day")["sales_quantity"].sum()
+sales_weekly = df.groupby("sale_week")["sales_quantity"].sum()
+sales_yearly = df.groupby("sale_year")["sales_quantity"].sum()
 
 st.subheader("Daily Sales")
 st.bar_chart(sales_daily)
@@ -95,18 +131,18 @@ st.bar_chart(sales_weekly)
 st.subheader("Yearly Sales")
 st.bar_chart(sales_yearly)
 
-# Expiry, Purchase, and Next Stock Purchase Info
+# Stock Information
 st.header("Stock Information")
-st.write(df[["Company", "Product Name", "Manufacture Date", "Expiry Date", "Date of Purchase", "Next Stock Purchase"]])
+st.write(df[["company", "product_name", "manufacture_date", "expiry_date", "date_of_purchase", "next_stock_purchase"]])
 
 # Selling Price and Purchase Price
 st.header("Selling and Purchase Prices")
-price_data = df.groupby("Company")[["Selling Price", "Purchase Price"]].mean()
+price_data = df.groupby("company")[["selling_price", "purchase_price"]].mean()
 st.bar_chart(price_data)
 
 # Profit Analysis
 st.header("Profit Analysis")
-df["Profit per Unit"] = df["Selling Price"] - df["Purchase Price"]
-df["Total Profit"] = df["Profit per Unit"] * df["Sales Quantity"]
-profit_by_company = df.groupby("Company")["Total Profit"].sum()
+df["profit_per_unit"] = df["selling_price"] - df["purchase_price"]
+df["total_profit"] = df["profit_per_unit"] * df["sales_quantity"]
+profit_by_company = df.groupby("company")["total_profit"].sum()
 st.bar_chart(profit_by_company)

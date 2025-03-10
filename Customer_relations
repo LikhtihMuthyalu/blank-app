@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 
 # Streamlit App Configurations
-st.set_page_config(layout="wide")  # Makes the layout wider
+st.set_page_config(layout="wide")
 
 # Database Functions
 def create_database():
@@ -34,7 +34,8 @@ def create_database():
         CREATE TABLE IF NOT EXISTS feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             contact TEXT NOT NULL,
-            feedback TEXT NOT NULL,
+            rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+            suggestion TEXT,
             FOREIGN KEY (contact) REFERENCES customers (contact) ON DELETE CASCADE
         )
     ''')
@@ -50,7 +51,7 @@ def add_customer(contact, name, age, gender, address):
 
     if existing_contact:
         return False, "📞 Customer with this contact already exists."
-    
+
     try:
         conn = sqlite3.connect('medical_shop.db')
         cursor = conn.cursor()
@@ -60,8 +61,8 @@ def add_customer(contact, name, age, gender, address):
         ''', (contact, name, age, gender, address))
         conn.commit()
         return True, "✔️ Customer added successfully!"
-    except sqlite3.IntegrityError:
-        return False, "❌ Error while adding the customer."
+    except sqlite3.IntegrityError as e:
+        return False, f"❌ Error while adding the customer: {e}"
     finally:
         conn.close()
 
@@ -86,37 +87,46 @@ def delete_customer(contact):
         conn.close()
         return False, "❌ Customer not found."
 
-def add_purchase(contact, item, quantity, price, date):
-    discount = 0
-    total_price = quantity * price
-    if total_price > 5000:
-        discount = total_price * 0.1  # 10% discount for purchases over 5000
+def delete_all_customers():
+    conn = sqlite3.connect('medical_shop.db')
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM customers')
+    conn.commit()
+    conn.close()
+    return "✅ All customers deleted successfully!"
 
-    if total_price > 10000:
-        discount += total_price * 0.05  # Additional 5% discount for purchases above 10000
+def view_customer_purchases():
+    conn = sqlite3.connect('medical_shop.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT c.contact, c.name, p.item, p.quantity, p.price, p.date 
+        FROM customers c 
+        LEFT JOIN purchase_history p 
+        ON c.contact = p.contact
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
-    final_price = total_price - discount
+def add_feedback(contact, rating, suggestion):
     try:
         conn = sqlite3.connect('medical_shop.db')
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO purchase_history (contact, item, quantity, price, date) 
-            VALUES (?, ?, ?, ?, ?)
-        ''', (contact, item, quantity, price, date))
+            INSERT INTO feedback (contact, rating, suggestion) 
+            VALUES (?, ?, ?)
+        ''', (contact, rating, suggestion))
         conn.commit()
-        return True, f"✔️ Purchase record added successfully! {'Discount applied: ₹' + str(discount) if discount > 0 else ''} Total Price: ₹{final_price:.2f}"
-    except sqlite3.IntegrityError:
-        return False, "❌ The contact number does not exist in the customers' database."
+        return True, "✔️ Feedback submitted successfully!"
+    except sqlite3.IntegrityError as e:
+        return False, f"❌ The contact number does not exist in the customers' database: {e}"
     finally:
         conn.close()
 
-def view_purchase_history():
+def view_feedback():
     conn = sqlite3.connect('medical_shop.db')
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT contact, item, quantity, price, date
-        FROM purchase_history
-    ''')
+    cursor.execute('SELECT contact, rating, suggestion FROM feedback')
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -126,7 +136,7 @@ create_database()
 
 # Streamlit App
 st.sidebar.title("📋 Navigation")
-page = st.sidebar.radio("Go to", ["Customer Management", "Purchase History"])
+page = st.sidebar.radio("Go to", ["Customer Management", "View Purchases", "Feedback"])
 
 if page == "Customer Management":
     st.title("👨‍⚕️ Customer Management")
@@ -152,12 +162,7 @@ if page == "Customer Management":
     customers = view_customers()
     if customers:
         customer_df = pd.DataFrame(customers, columns=["Contact", "Name", "Age", "Gender", "Address"])
-
-        # Use wide columns for better layout
-        col1, col2 = st.columns([2, 1])  # The first column is wider
-        with col1:
-            st.dataframe(customer_df)
-
+        st.dataframe(customer_df)
     else:
         st.info("🧐 No customers found.")
 
@@ -172,56 +177,46 @@ if page == "Customer Management":
             else:
                 st.error(message)
 
-elif page == "Purchase History":
-    st.title("🛒 Purchase History Management")
+    # Delete All Customers
+    st.header("🗑️ Delete All Customers")
+    if st.button("🗑️ Delete All Customers"):
+        message = delete_all_customers()
+        st.success(message)
 
-    # Tabs for Navigation
-    tab1, tab2 = st.tabs(["➕ Add Purchase", "📝 View Purchase History"])
+elif page == "View Purchases":
+    st.title("🛒 Customer Purchases")
 
-    # Tab 1: Add Purchase
-    with tab1:
-        st.header("🛒 Add Purchase Records")
-        contact = st.text_input("Customer Contact", max_chars=10, key="add_purchase_contact")
-        item = st.text_input("Item Name")
-        quantity = st.number_input("Quantity", min_value=1, step=1)
-        price = st.number_input("Price", min_value=0.01, step=0.01, format="%.2f")
-        date = st.date_input("Purchase Date")
+    # View Purchases
+    st.header("👀 View Customer Purchases")
+    purchases = view_customer_purchases()
+    if purchases:
+        purchase_df = pd.DataFrame(purchases, columns=["Contact", "Name", "Item", "Quantity", "Price", "Date"])
+        st.dataframe(purchase_df)
+    else:
+        st.info("🧐 No purchase records found.")
 
-        if st.button("💾 Add Purchase"):
-            if contact and item:
-                success, message = add_purchase(contact, item, quantity, price, str(date))
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
+elif page == "Feedback":
+    st.title("💬 Customer Feedback")
 
-    # Tab 2: View Purchase History - Grouped by Contact
-    with tab2:
-        st.header("📝 Purchase History")
+    # Add Feedback
+    st.header("📝 Submit Feedback")
+    feedback_contact = st.text_input("Customer Contact", max_chars=10, key="feedback_contact")
+    rating = st.slider("How was your shopping experience?", min_value=1, max_value=5, step=1, key="feedback_rating")
+    suggestion = st.text_area("Any suggestions for us?", key="feedback_suggestion")
 
-        # Fetch purchase data from database
-        purchases = view_purchase_history()
+    if st.button("💾 Submit Feedback"):
+        if feedback_contact and rating:
+            success, message = add_feedback(feedback_contact, rating, suggestion)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
 
-        if purchases:
-            # Convert to DataFrame for better visualization
-            purchase_df = pd.DataFrame(purchases, columns=["Contact", "Item", "Quantity", "Price", "Date"])
-
-            # Grouping purchases by contact
-            grouped_purchase_df = purchase_df.groupby("Contact").agg({
-                "Item": lambda x: ", ".join(x),
-                "Quantity": "sum",
-                "Price": "sum",
-                "Date": lambda x: ", ".join(x)
-            }).reset_index()
-
-            # Format Price as currency
-            grouped_purchase_df['Price'] = grouped_purchase_df['Price'].apply(lambda x: f"₹{x:.2f}")
-            grouped_purchase_df['Quantity'] = grouped_purchase_df['Quantity'].astype(int)
-
-            # Use wide columns for better layout
-            col1, col2 = st.columns([2, 1])  # The first column is wider
-            with col1:
-                st.dataframe(grouped_purchase_df)
-
-        else:
-            st.info("🧐 No purchase records found.")
+    # View Feedback
+    st.header("👀 View Feedback")
+    feedbacks = view_feedback()
+    if feedbacks:
+        feedback_df = pd.DataFrame(feedbacks, columns=["Contact", "Rating", "Suggestion"])
+        st.dataframe(feedback_df)
+    else:
+        st.info("🧐 No feedback records found.")

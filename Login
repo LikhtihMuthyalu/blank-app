@@ -1,0 +1,85 @@
+# setup_db.py
+import sqlite3
+
+def create_database():
+    conn = sqlite3.connect('pharmacy.db')
+    cursor = conn.cursor()
+    
+    # Create users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+if __name__ == '__main__':
+    create_database()
+# app.py
+import streamlit as st
+import sqlite3
+import hashlib
+
+def get_db_connection():
+    conn = sqlite3.connect('pharmacy.db')
+    return conn
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def register_user(username, password):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, hash_password(password)))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+def check_user(username, password):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE username = ? AND password = ?', (username, hash_password(password)))
+    user = cursor.fetchone()
+    conn.close()
+    return user
+
+# Streamlit application
+st.title('Pharmacy User Registration and Login')
+
+menu = ["Register", "Login"]
+choice = st.sidebar.selectbox("Select Action", menu)
+
+if choice == "Register":
+    st.subheader("Create a New Account")
+    username = st.text_input('Username')
+    password = st.text_input('Password', type='password')
+    
+    if st.button('Register'):
+        if username and password:
+            if register_user(username, password):
+                st.success("User  registered successfully!")
+            else:
+                st.error("Username already exists. Please choose a different one.")
+        else:
+            st.error("Please fill in both fields.")
+
+elif choice == "Login":
+    st.subheader("Login to Your Account")
+    username = st.text_input('Username')
+    password = st.text_input('Password', type='password')
+    
+    if st.button('Login'):
+        user = check_user(username, password)
+        if user:
+            st.success('Login successful!')
+            st.write('Welcome to the Pharmacy Dashboard!')
+        else:
+            st.error('Invalid username or password')

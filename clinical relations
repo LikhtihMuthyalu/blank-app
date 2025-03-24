@@ -1,7 +1,45 @@
 import streamlit as st
 import pandas as pd
+import sqlite3 
 import uuid
 import re
+
+# Connect to SQLite and load data
+conn = sqlite3.connect("medicines.db")
+cursor = conn.cursor()
+
+# Ensure the table exists
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS medicines (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE,
+    purpose TEXT,
+    legal_status TEXT,
+    alternatives TEXT,
+    description TEXT
+)
+""")
+conn.commit()
+
+# Load medicines into a DataFrame
+medicines_db = pd.read_sql_query("SELECT * FROM medicines", conn)
+
+# Rename columns to match expected names
+medicines_db.columns = ["id", "name", "purpose", "legal_status", "alternatives", "description"]
+
+# Store in session state
+st.session_state.medicines_db = medicines_db
+
+conn = sqlite3.connect("medicines.db")
+cursor = conn.cursor()
+
+# Load data from database into Streamlit session state
+df = pd.read_sql_query("SELECT * FROM medicines", conn)
+
+
+if 'medicines_db' not in st.session_state:
+    st.session_state.medicines_db = df
+
 
 # Initialize session state for the medicines database
 if 'medicines_db' not in st.session_state:
@@ -65,19 +103,19 @@ elif page == "🔍 Medicine Search":
     
     filtered_medicines = medicines_db
     if search_query:
-        filtered_medicines = filtered_medicines[filtered_medicines["Medicine Name"].str.contains(search_query, case=False, na=False)]
+        filtered_medicines = filtered_medicines[filtered_medicines["name"].str.contains(search_query, case=False, na=False)]
     if legal_filter != "All":
-        filtered_medicines = filtered_medicines[filtered_medicines["Legal Status"] == legal_filter]
+        filtered_medicines = filtered_medicines[filtered_medicines["legal_status"] == legal_filter]
     
     if not filtered_medicines.empty:
-        selected_medicine = st.selectbox("Select Medicine", filtered_medicines["Medicine Name"])
-        medicine_details = medicines_db[medicines_db["Medicine Name"] == selected_medicine].iloc[0]
-        st.write(f"**🆔 ID:** {medicine_details['ID']}")
-        st.write(f"**💊 Name:** {medicine_details['Medicine Name']}")
-        st.write(f"**🔹 Purpose:** {medicine_details['Purpose']}")
-        st.write(f"**📜 Legal Status:** {medicine_details['Legal Status']}")
-        st.write(f"**🔄 Alternatives:** {medicine_details['Alternatives']}")
-        st.write(f"**📖 Description:** {medicine_details['Detailed Description']}")
+        selected_medicine = st.selectbox("Select Medicine", filtered_medicines["name"])
+        medicine_details = medicines_db[medicines_db["name"] == selected_medicine].iloc[0]
+        st.write(f"**🆔 ID:** {medicine_details['id']}")
+        st.write(f"**💊 Name:** {medicine_details['name']}")
+        st.write(f"**🔹 Purpose:** {medicine_details['purpose']}")
+        st.write(f"**📜 Legal Status:** {medicine_details['legal_status']}")
+        st.write(f"**🔄 Alternatives:** {medicine_details['alternatives']}")
+        st.write(f"**📖 Description:** {medicine_details['description']}")
     else:
         st.warning("⚠️ No medicine found. Try adjusting your search criteria.")
 
@@ -93,44 +131,62 @@ elif page == "➕ Add Medicine":
         submitted = st.form_submit_button("✅ Add Medicine")
         
         if submitted:
-            if not new_name or new_name in medicines_db["Medicine Name"].values or not re.match("^[a-zA-Z0-9 ]+$", new_name):
-                st.error("🚨 Invalid medicine name! Ensure it's unique and contains only letters/numbers.")
-            elif not new_purpose or not new_description:
-                st.error("🚨 Please fill out all fields, including Purpose and Description.")
+            # Validate Input Fields
+            if not new_name or not new_purpose or not new_description:
+                st.error("🚨 Please fill out all fields: Medicine Name, Purpose, and Description.")
+            elif new_name in medicines_db["name"].values:
+                st.error(f"🚨 Medicine '{new_name}' already exists in the database!")
+            elif not re.match("^[a-zA-Z0-9 ]+$", new_name):
+                st.error("🚨 Medicine name must contain only letters and numbers (no special characters).")
             else:
-                new_data = pd.DataFrame([{
-                    "ID": str(uuid.uuid4())[:8], 
-                    "Medicine Name": new_name, 
-                    "Purpose": new_purpose, 
-                    "Legal Status": new_legal_status, 
-                    "Alternatives": new_alternatives, 
-                    "Detailed Description": new_description 
-                }])
-                st.session_state.medicines_db = pd.concat([st.session_state.medicines_db, new_data], ignore_index=True)
-                st.success(f"✅ Medicine '{new_name}' added successfully!")
+                new_id = str(uuid.uuid4())[:8]  # Generate a unique ID
+
+                # Insert into SQLite database
+                try:
+                    cursor.execute("""
+                        INSERT INTO medicines (id, name, purpose, legal_status, alternatives, description) 
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (new_id, new_name, new_purpose, new_legal_status, new_alternatives, new_description))
+                    conn.commit()  # Save changes
+
+                    # Update Streamlit session state
+                    new_data = pd.DataFrame([{
+                        "ID": new_id, 
+                        "Medicine Name": new_name, 
+                        "Purpose": new_purpose, 
+                        "Legal Status": new_legal_status, 
+                        "Alternatives": new_alternatives, 
+                        "Detailed Description": new_description 
+                    }])
+                    st.session_state.medicines_db = pd.concat([st.session_state.medicines_db, new_data], ignore_index=True)
+
+                    st.success(f"✅ Medicine '{new_name}' added successfully and saved to the database!")
+
+                except sqlite3.IntegrityError:
+                    st.error(f"🚨 Medicine '{new_name}' already exists in the database!")
 
 elif page == "✏️ Update Medicine":
     st.title("✏️ Update Medicine")
     
-    medicine_to_update = st.selectbox("Select Medicine to Update", medicines_db["Medicine Name"].unique())
-    medicine_details = medicines_db[medicines_db["Medicine Name"] == medicine_to_update].iloc[0]
+    medicine_to_update = st.selectbox("Select Medicine to Update", medicines_db["name"].unique())
+    medicine_details = medicines_db[medicines_db["name"] == medicine_to_update].iloc[0]
     
     with st.form("update_medicine_form", clear_on_submit=True):
-        updated_name = st.text_input("Medicine Name", value=medicine_details["Medicine Name"]).strip()
-        updated_purpose = st.text_input("Purpose", value=medicine_details["Purpose"]).strip()
-        updated_legal_status = st.selectbox("Legal Status", ["OTC", "Prescription"], index=["OTC", "Prescription"].index(medicine_details["Legal Status"]))
-        updated_alternatives = st.text_input("Alternatives", value=medicine_details["Alternatives"]).strip()
-        updated_description = st.text_area("Detailed Description", value=medicine_details["Detailed Description"]).strip()
+        updated_name = st.text_input("Medicine Name", value=medicine_details["name"]).strip()
+        updated_purpose = st.text_input("Purpose", value=medicine_details["purpose"]).strip()
+        updated_legal_status = st.selectbox("legal_status", ["OTC", "Prescription"], index=["OTC", "Prescription"].index(medicine_details["legal_status"]))
+        updated_alternatives = st.text_input("Alternatives", value=medicine_details["alternatives"]).strip()
+        updated_description = st.text_area("Detailed Description", value=medicine_details["description"]).strip()
         submitted = st.form_submit_button("✅ Update Medicine")
         
         if submitted:
-            if not updated_name or updated_name in medicines_db["Medicine Name"].values or not re.match("^[a-zA-Z0-9 ]+$", updated_name):
+            if not updated_name or updated_name in medicines_db["name"].values or not re.match("^[a-zA-Z0-9 ]+$", updated_name):
                 st.error("🚨 Invalid medicine name! Ensure it's unique and contains only letters/numbers.")
             elif not updated_purpose or not updated_description:
                 st.error("🚨 Please fill out all fields, including Purpose and Description.")
             else:
                 # Update the selected medicine details
-                medicines_db.loc[medicines_db["Medicine Name"] == medicine_to_update, ["Medicine Name", "Purpose", "Legal Status", "Alternatives", "Detailed Description"]] = [updated_name, updated_purpose, updated_legal_status, updated_alternatives, updated_description]
+                medicines_db.loc[medicines_db["name"] == medicine_to_update, ["name", "purpose", "legal_status", "alternatives", "description"]] = [updated_name, updated_purpose, updated_legal_status, updated_alternatives, updated_description]
                 st.session_state.medicines_db = medicines_db
                 st.success(f"✅ Medicine '{updated_name}' updated successfully!")
 
@@ -146,30 +202,47 @@ elif page == "⚖️ Medicine Comparison":
     col1, col2 = st.columns(2)
     
     with col1:
-        med1 = st.selectbox("Select first medicine", medicines_db["Medicine Name"].unique(), key="comp1")
+        med1 = st.selectbox("Select first medicine", medicines_db["name"].unique(), key="comp1")
     with col2:
-        med2 = st.selectbox("Select second medicine", medicines_db["Medicine Name"].unique(), key="comp2")
+        med2 = st.selectbox("Select second medicine", medicines_db["name"].unique(), key="comp2")
     
     if med1 and med2:
-        details1 = medicines_db[medicines_db["Medicine Name"] == med1].iloc[0]
-        details2 = medicines_db[medicines_db["Medicine Name"] == med2].iloc[0]
+        details1 = medicines_db[medicines_db["name"] == med1].iloc[0]
+        details2 = medicines_db[medicines_db["name"] == med2].iloc[0]
         
         comp_df = pd.DataFrame({
-            "Attribute": ["Medicine Name", "Purpose", "Legal Status", "Alternatives", "Description"],
-            f"{med1}": [details1["Medicine Name"], details1["Purpose"], details1["Legal Status"], details1["Alternatives"], details1["Detailed Description"]],
-            f"{med2}": [details2["Medicine Name"], details2["Purpose"], details2["Legal Status"], details2["Alternatives"], details2["Detailed Description"]]
+            "Attribute": ["name", "purpose", "legal_status", "alternatives", "description"],
+            f"{med1}": [details1["name"], details1["purpose"], details1["legal_status"], details1["alternatives"], details1["description"]],
+            f"{med2}": [details2["name"], details2["purpose"], details2["legal_status"], details2["alternatives"], details2["description"]]
         })
         
         st.table(comp_df)
 
 elif page == "🗑️ Delete Medicine":
     st.title("🗑️ Delete Medicine")
-    medicine_to_delete = st.selectbox("Select Medicine to Delete", medicines_db["Medicine Name"].unique())
-    
-    if st.button("🗑️ Delete Medicine", key="delete_button", help="This action is irreversible"):
+
+    # Fetch medicine names from SQLite
+    cursor.execute("SELECT DISTINCT name FROM medicines")
+    medicine_names = [row[0] for row in cursor.fetchall()]
+
+    if medicine_names:
+        medicine_to_delete = st.selectbox("Select Medicine to Delete", medicine_names)
+
         confirm_delete = st.checkbox(f"Are you sure you want to delete '{medicine_to_delete}'?")
-        if confirm_delete:
-            st.session_state.medicines_db = medicines_db[medicines_db["Medicine Name"] != medicine_to_delete].reset_index(drop=True)
-            st.success(f"✅ Medicine '{medicine_to_delete}' deleted successfully!")
-        else:
-            st.warning("❌ Deletion not confirmed. Medicine not deleted.")
+
+        if st.button("🗑️ Delete Medicine", key="delete_button", help="This action is irreversible"):
+            if confirm_delete:
+                # DELETE from SQLite database
+                cursor.execute("DELETE FROM medicines WHERE name = ?", (medicine_to_delete,))
+                conn.commit()  # Save changes to the database
+
+                # Refresh session state from SQLite
+                df = pd.read_sql_query("SELECT * FROM medicines", conn)
+                st.session_state.medicines_db = df  # Update Streamlit's session state
+
+                st.success(f"✅ Medicine '{medicine_to_delete}' deleted successfully!")
+                st.rerun()  # Refresh the app after deletion
+            else:
+                st.warning("❌ Deletion not confirmed. Medicine not deleted.")
+    else:
+        st.warning("⚠️ No medicines available to delete.")

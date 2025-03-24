@@ -1,3 +1,4 @@
+from datetime import datetime
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -7,8 +8,10 @@ st.set_page_config(layout="wide")
 
 # Database Functions
 def create_database():
-    conn = sqlite3.connect('medical_shop.db')
+    conn = sqlite3.connect('medical_shop_final.db')
     cursor = conn.cursor()
+
+    # Create Customers Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,6 +22,8 @@ def create_database():
             address TEXT
         )
     ''')
+
+    # Create Purchase History Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS purchase_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,8 +35,11 @@ def create_database():
             FOREIGN KEY (contact) REFERENCES customers (contact) ON DELETE CASCADE
         )
     ''')
+
+    # Drop and Re-create Feedback Table
+    cursor.execute('DROP TABLE IF EXISTS feedback')
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS feedback (
+        CREATE TABLE feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             contact TEXT NOT NULL,
             rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
@@ -39,11 +47,121 @@ def create_database():
             FOREIGN KEY (contact) REFERENCES customers (contact) ON DELETE CASCADE
         )
     ''')
+
+    # Create Inventory Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item TEXT UNIQUE NOT NULL,
+            quantity INTEGER NOT NULL CHECK(quantity >= 0),
+            price REAL NOT NULL CHECK(price > 0)
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
+
+# Inventory Functions
+def view_inventory():
+    conn = sqlite3.connect('inventory_mine.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT item, quantity, price FROM supplies')
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def add_to_cart(cart, item, quantity):
+    inventory = view_inventory()
+    inventory_dict = {i[0]: {'quantity': i[1], 'price': i[2]} for i in inventory}
+
+    if item not in inventory_dict:
+        return False, "❌ Item not found in inventory."
+
+    if inventory_dict[item]['quantity'] < quantity:
+        return False, "❌ Insufficient stock available."
+
+    if item in cart:
+        cart[item]['quantity'] += quantity
+    else:
+        cart[item] = {
+            'quantity': quantity,
+            'price': inventory_dict[item]['price']
+        }
+
+    return True, "✔️ Item added to cart."
+
+def calculate_total(cart):
+    """
+    Calculate the total amount for the items in the cart.
+
+    Args:
+        cart (dict): A dictionary containing items, where each item has 'quantity' and 'price'.
+
+    Returns:
+        float: The total price of items in the cart.
+    """
+    total = 0
+    for item, details in cart.items():
+        total += details['quantity'] * details['price']
+    return total
+
+
+def view_cart(cart):
+    return cart
+
+def checkout_with_details(cart, customer_contact):
+    if not cart:
+        return False, "❌ Cart is empty. Cannot proceed with billing."
+    
+    # Check if the customer exists
+    conn = sqlite3.connect('medical_shop_final.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT name FROM customers WHERE contact = ?', (customer_contact,))
+    customer = cursor.fetchone()
+    if not customer:
+        conn.close()
+        return False, "❌ Customer not found. Please check the contact number."
+
+    # Generate a unique bill number
+    timestamp = datetime.now()
+    bill_number = f"BILL{timestamp.strftime('%Y%m%d%H%M%S')}"
+
+    # Deduct inventory and calculate total
+    total_amount = 0
+    for item, details in cart.items():
+        cursor.execute('SELECT quantity FROM inventory WHERE item = ?', (item,))
+        available_quantity = cursor.fetchone()[0]
+
+        if available_quantity < details['quantity']:
+            conn.close()
+            return False, f"❌ Insufficient stock for item: {item}"
+
+        new_quantity = available_quantity - details['quantity']
+        cursor.execute('UPDATE inventory SET quantity = ? WHERE item = ?', (new_quantity, item))
+        total_amount += details['quantity'] * details['price']
+
+    # Save purchase history for the customer
+    for item, details in cart.items():
+        cursor.execute('''
+            INSERT INTO purchase_history (contact, item, quantity, price, date)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (customer_contact, item, details['quantity'], details['price'], timestamp.strftime('%Y-%m-%d %H:%M:%S')))
+
+    # Commit transaction and close connection
+    conn.commit()
+    conn.close()
+
+    # Clear the cart
+    cart.clear()
+
+    return True, f"✔️ Billing successful! \nBill Number: {bill_number} \nCustomer: {customer[0]} \nTotal Amount: ₹{total_amount:.2f} \nDate: {timestamp.strftime('%Y-%m-%d')} \nTime: {timestamp.strftime('%H:%M:%S')}"
+
+
+
+# Customer Functions
 def add_customer(contact, name, age, gender, address):
-    conn = sqlite3.connect('medical_shop.db')
+    conn = sqlite3.connect('medical_shop_final.db')
     cursor = conn.cursor()
     cursor.execute('SELECT contact FROM customers WHERE contact = ?', (contact,))
     existing_contact = cursor.fetchone()
@@ -53,7 +171,7 @@ def add_customer(contact, name, age, gender, address):
         return False, "📞 Customer with this contact already exists."
 
     try:
-        conn = sqlite3.connect('medical_shop.db')
+        conn = sqlite3.connect('medical_shop_final.db')
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO customers (contact, name, age, gender, address) 
@@ -67,15 +185,15 @@ def add_customer(contact, name, age, gender, address):
         conn.close()
 
 def view_customers():
-    conn = sqlite3.connect('medical_shop.db')
+    conn = sqlite3.connect('medical_shop_final.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT contact, name, age, gender, address FROM customers')
+    cursor.execute('SELECT id, contact, name, age, gender, address FROM customers')
     rows = cursor.fetchall()
     conn.close()
     return rows
 
 def delete_customer(contact):
-    conn = sqlite3.connect('medical_shop.db')
+    conn = sqlite3.connect('medical_shop_final.db')
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM customers WHERE contact = ?', (contact,))
     if cursor.fetchone():
@@ -88,7 +206,7 @@ def delete_customer(contact):
         return False, "❌ Customer not found."
 
 def delete_all_customers():
-    conn = sqlite3.connect('medical_shop.db')
+    conn = sqlite3.connect('medical_shop_final.db')
     cursor = conn.cursor()
     cursor.execute('DELETE FROM customers')
     conn.commit()
@@ -96,7 +214,7 @@ def delete_all_customers():
     return "✅ All customers deleted successfully!"
 
 def view_customer_purchases():
-    conn = sqlite3.connect('medical_shop.db')
+    conn = sqlite3.connect('medical_shop_final.db')
     cursor = conn.cursor()
     cursor.execute('''
         SELECT c.contact, c.name, p.item, p.quantity, p.price, p.date 
@@ -110,7 +228,7 @@ def view_customer_purchases():
 
 def add_feedback(contact, rating, suggestion):
     try:
-        conn = sqlite3.connect('medical_shop.db')
+        conn = sqlite3.connect('medical_shop_final.db')
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO feedback (contact, rating, suggestion) 
@@ -124,7 +242,7 @@ def add_feedback(contact, rating, suggestion):
         conn.close()
 
 def view_feedback():
-    conn = sqlite3.connect('medical_shop.db')
+    conn = sqlite3.connect('medical_shop_final.db')
     cursor = conn.cursor()
     cursor.execute('SELECT contact, rating, suggestion FROM feedback')
     rows = cursor.fetchall()
@@ -136,7 +254,7 @@ create_database()
 
 # Streamlit App
 st.sidebar.title("📋 Navigation")
-page = st.sidebar.radio("Go to", ["Customer Management", "View Purchases", "Feedback"])
+page = st.sidebar.radio("Go to", ["Customer Management", "View Purchases", "Feedback", "Billing System"])
 
 if page == "Customer Management":
     st.title("👨‍⚕️ Customer Management")
@@ -161,7 +279,7 @@ if page == "Customer Management":
     st.header("👀 View Customers")
     customers = view_customers()
     if customers:
-        customer_df = pd.DataFrame(customers, columns=["Contact", "Name", "Age", "Gender", "Address"])
+        customer_df = pd.DataFrame(customers, columns=["id","Contact", "Name", "Age", "Gender", "Address"])
         st.dataframe(customer_df)
     else:
         st.info("🧐 No customers found.")
@@ -220,3 +338,115 @@ elif page == "Feedback":
         st.dataframe(feedback_df)
     else:
         st.info("🧐 No feedback records found.")
+
+elif page == "Billing System":
+    st.title("🧾 Billing System ")
+
+    # Initialize Cart
+    if "cart" not in st.session_state:
+        st.session_state.cart = {}
+
+    # Sidebar: Display Current Date and Time
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    current_time = datetime.now().strftime("%H:%M:%S")
+    st.sidebar.markdown(f"### 📅 Date: {current_date}")
+    st.sidebar.markdown(f"### ⏰ Time: {current_time}")
+
+    # Inventory Browsing and Search
+    st.header("🔍 Search and Browse Inventory")
+    inventory = view_inventory()
+    if inventory:
+        inventory_df = pd.DataFrame(inventory, columns=["Item", "Quantity", "Price"])
+        search_term = st.text_input("Search for an item", key="search_item").lower()
+        if search_term:
+            filtered_inventory = inventory_df[inventory_df["Item"].str.contains(search_term, case=False)]
+            st.dataframe(filtered_inventory.style.highlight_max(axis=0), use_container_width=True)
+        else:
+            st.dataframe(inventory_df.style.highlight_max(axis=0), use_container_width=True)
+    else:
+        st.info("🛍️ Inventory is empty. Add items to get started.")
+
+    # Add Items to Cart
+    st.header("➕ Add Items to Cart")
+    col1, col2 = st.columns(2)
+    with col1:
+        item = st.selectbox("Select Item", options=inventory_df["Item"].tolist() if not inventory_df.empty else [], key="cart_item")
+    with col2:
+        quantity = st.number_input("Enter Quantity", min_value=1, step=1, key="cart_quantity")
+
+    if st.button("➕ Add to Cart"):
+        if item and quantity:
+            success, message = add_to_cart(st.session_state.cart, item, quantity)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+
+    # Cart Management
+    st.header("🛒 Your Cart")
+    if st.session_state.cart:
+        cart_df = pd.DataFrame.from_dict(st.session_state.cart, orient="index")
+        cart_df["Total"] = cart_df["quantity"] * cart_df["price"]
+        st.dataframe(cart_df, use_container_width=True)
+
+        # Inline Cart Management
+        st.subheader("⚙️ Manage Cart")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            update_item = st.selectbox("Update Item", options=list(st.session_state.cart.keys()), key="update_cart_item")
+        with col2:
+            update_quantity = st.number_input("New Quantity", min_value=1, step=1, key="update_cart_quantity")
+        with col3:
+            if st.button("🔄 Update Quantity"):
+                if update_item in st.session_state.cart:
+                    st.session_state.cart[update_item]["quantity"] = update_quantity
+                    st.success(f"✅ Updated {update_item} to {update_quantity} quantity!")
+                else:
+                    st.error("❌ Item not found in cart.")
+
+        # Remove Item
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            remove_item = st.selectbox("Remove Item", options=list(st.session_state.cart.keys()), key="remove_cart_item")
+        with col2:
+            if st.button("❌ Remove Item"):
+                if remove_item in st.session_state.cart:
+                    st.session_state.cart.pop(remove_item)
+                    st.success(f"✅ Removed {remove_item} from cart!")
+                else:
+                    st.error("❌ Item not found in cart.")
+
+        # Calculate Total
+        total_amount = calculate_total(st.session_state.cart)
+        st.markdown(f"### 💵 Total Amount: ₹{total_amount:.2f}")
+
+        # Clear Cart with Confirmation
+        if st.button("🗑️ Clear Cart"):
+            if st.confirm("Are you sure you want to clear the cart? This action cannot be undone."):
+                st.session_state.cart.clear()
+                st.info("✅ Cart cleared.")
+
+        # Checkout Workflow
+        st.header("🧾 Checkout")
+        customer_contact = st.text_input("Customer Contact", max_chars=10, key="checkout_contact")
+        customer_name = st.text_input("Customer Name", key="checkout_name")
+
+        if st.button("✅ Complete Checkout"):
+            if customer_contact and customer_name:
+                success, message = checkout_with_details(st.session_state.cart, customer_contact)
+                if success:
+                    st.success(message)
+                    st.markdown(f"### 🧾 Bill Summary")
+                    st.markdown(f"**Customer Name:** {customer_name}")
+                    st.markdown(f"**Customer Contact:** {customer_contact}")
+                    st.markdown(f"**Date:** {current_date}")
+                    st.markdown(f"**Time:** {current_time}")
+                    st.dataframe(cart_df, use_container_width=True)
+                    st.markdown(f"### **Total Amount Paid:** ₹{total_amount:.2f}")
+                    st.session_state.cart.clear()
+                else:
+                    st.error(message)
+            else:
+                st.error("❌ Please enter both customer name and contact.")
+    else:
+        st.info("🛍️ Your cart is empty. Add items to proceed.")

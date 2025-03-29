@@ -1,97 +1,92 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
 from fpdf import FPDF
+import os
 
-# Initialize supplier data
-if "suppliers" not in st.session_state:
-    st.session_state["suppliers"] = pd.DataFrame({
-        "Supplier Name": [],
-        "Contact Info": [],
-        "Pricing Terms": [],
-        "Products Supplied": [],
-        "Address": []  # New column added for address
-    })
+# Database connection
+conn = sqlite3.connect("supplier_management.db", check_same_thread=False)
+c = conn.cursor()
 
-# Initialize purchase order data
-if "purchase_orders" not in st.session_state:
-    st.session_state["purchase_orders"] = pd.DataFrame({
-        "Order ID": [],
-        "Supplier Name": [],
-        "Order Date": [],
-        "Expected Delivery Date": [],
-        "Actual Delivery Date": [],
-        "Order Status": [],
-        "Lead Time (days)": []
-    })
+# Create tables if they do not exist
+with conn:
+    c.execute('''CREATE TABLE IF NOT EXISTS suppliers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    contact TEXT,
+                    pricing TEXT,
+                    products TEXT,
+                    address TEXT
+                )''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS purchase_orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    supplier_name TEXT,
+                    order_date TEXT,
+                    expected_delivery TEXT,
+                    actual_delivery TEXT,
+                    status TEXT,
+                    lead_time INTEGER
+                )''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS invoices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER,
+                    supplier_name TEXT,
+                    supplier_address TEXT,
+                    invoice_date TEXT,
+                    subtotal REAL,
+                    tax REAL,
+                    tax_amount REAL,
+                    discount REAL,
+                    shipping REAL,
+                    total REAL,
+                    payment_status TEXT
+                )''')
 
-# Initialize invoice data
-if "invoices" not in st.session_state:
-    st.session_state["invoices"] = pd.DataFrame({
-        "Invoice ID": [],
-        "Order ID": [],
-        "Supplier Name": [],
-        "Invoice Date": [],
-        "Items": [],
-        "Subtotal": [],
-        "Tax (%)": [],
-        "Tax Amount": [],
-        "Discount": [],
-        "Shipping Cost": [],
-        "Total Amount": [],
-        "Payment Status": []
-    })
-
-# Function to add a supplier
 def add_supplier():
     with st.form("add_supplier_form"):
         name = st.text_input("Supplier Name")
         contact = st.text_input("Contact Info")
         pricing = st.text_area("Pricing Terms")
         products = st.text_area("Products Supplied (comma-separated)")
-        address = st.text_area("Address")
+        address = st.text_area("Supplier Address")
         submit = st.form_submit_button("Add Supplier")
         
         if submit:
-            if name and contact:
-                new_supplier = pd.DataFrame({
-                    "Supplier Name": [name],
-                    "Contact Info": [contact],
-                    "Pricing Terms": [pricing],
-                    "Products Supplied": [products],
-                    "Address": [address]
-                })
-                st.session_state["suppliers"] = pd.concat([st.session_state["suppliers"], new_supplier], ignore_index=True)
+            if name and contact and address:
+                with conn:
+                    c.execute("INSERT INTO suppliers (name, contact, pricing, products, address) VALUES (?, ?, ?, ?, ?)",
+                              (name, contact, pricing, products, address))
                 st.success(f"Supplier '{name}' added successfully!")
             else:
-                st.error("Supplier Name and Contact Info are required fields.")
+                st.error("Supplier Name, Contact, and Address are required fields.")
 
-# Function to add a purchase order
 def add_purchase_order():
-    supplier_names = st.session_state["suppliers"]["Supplier Name"].tolist()
-    selected_supplier = st.selectbox("Select Supplier", supplier_names)
-    order_date = st.date_input("Order Date")
-    expected_delivery_date = st.date_input("Expected Delivery Date")
-    order_status = st.selectbox("Order Status", ["Pending", "Shipped", "Delivered"])
+    suppliers_df = pd.read_sql("SELECT name FROM suppliers", conn)
+    supplier_names = suppliers_df['name'].tolist()
     
-    if st.button("Save Purchase Order"):
-        new_order = pd.DataFrame({
-            "Order ID": [len(st.session_state["purchase_orders"]) + 1],
-            "Supplier Name": [selected_supplier],
-            "Order Date": [order_date],
-            "Expected Delivery Date": [expected_delivery_date],
-            "Actual Delivery Date": [None],
-            "Order Status": [order_status],
-            "Lead Time (days)": [(expected_delivery_date - order_date).days]
-        })
-        st.session_state["purchase_orders"] = pd.concat([st.session_state["purchase_orders"], new_order], ignore_index=True)
-        st.success("Purchase Order added successfully!")
+    if supplier_names:
+        selected_supplier = st.selectbox("Select Supplier", supplier_names)
+        order_date = st.date_input("Order Date")
+        expected_delivery = st.date_input("Expected Delivery Date")
+        order_status = st.selectbox("Order Status", ["Pending", "Shipped", "Delivered"])
+        
+        if st.button("Save Purchase Order"):
+            lead_time = (expected_delivery - order_date).days
+            with conn:
+                c.execute("INSERT INTO purchase_orders (supplier_name, order_date, expected_delivery, actual_delivery, status, lead_time) VALUES (?, ?, ?, ?, ?, ?)",
+                          (selected_supplier, order_date, expected_delivery, None, order_status, lead_time))
+            st.success("Purchase Order added successfully!")
+    else:
+        st.warning("No suppliers available. Please add a supplier first.")
 
-# Function to generate invoice ID
 def generate_invoice_id():
-    return f"INV-{2025000 + len(st.session_state['invoices']) + 1}"
+    c.execute("SELECT COUNT(*) FROM invoices")
+    count = c.fetchone()[0]
+    return f"INV-{2025000 + count + 1}"
 
-# Function to create a detailed PDF invoice
-def create_invoice_pdf(invoice_id, supplier_name, invoice_date, items, subtotal, tax, tax_amount, discount, shipping, total_amount, payment_status):
+def create_invoice_pdf(invoice_id, supplier_name, supplier_address, invoice_date, subtotal, tax_amount, discount, shipping, total, payment_status):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -105,111 +100,62 @@ def create_invoice_pdf(invoice_id, supplier_name, invoice_date, items, subtotal,
     pdf.ln(5)
     
     pdf.set_font("Arial", "B", 12)
-    pdf.cell(100, 10, "From:")
+    pdf.cell(100, 10, "From: Sri Sai Balaji Medical & General Stores")
     pdf.cell(100, 10, "Bill To:", ln=True)
     pdf.set_font("Arial", "", 12)
-    pdf.cell(100, 10, f"{supplier_name}")
-    pdf.cell(100, 10, f"{supplier_name}", ln=True)
+    pdf.cell(100, 10, "#55/2, 1st Main Rd, Sudhama Nagar, Bengaluru, Karnataka 560027")
+    pdf.cell(100, 10, supplier_name, ln=True)
+    pdf.cell(100, 10, supplier_address, ln=True)
     pdf.ln(10)
-    
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(50, 10, "Description", border=1)
-    pdf.cell(30, 10, "Rate (RS)", border=1)
-    pdf.cell(20, 10, "Qty", border=1)
-    pdf.cell(20, 10, "Tax (%)", border=1)
-    pdf.cell(30, 10, "Discount", border=1)
-    pdf.cell(40, 10, "Amount (RS)", border=1)
-    pdf.ln()
-    
-    pdf.set_font("Arial", "", 12)
-    for item in items:
-        pdf.cell(50, 10, item["name"], border=1)
-        pdf.cell(30, 10, f"{item['rate']:.2f}", border=1)
-        pdf.cell(20, 10, str(item["quantity"]), border=1)
-        pdf.cell(20, 10, f"{item['tax']:.2f}", border=1)
-        pdf.cell(30, 10, f"{item['discount']:.2f}", border=1)
-        pdf.cell(40, 10, f"{item['total']:.2f}", border=1)
-        pdf.ln()
     
     pdf.ln(5)
     pdf.cell(200, 10, f"Subtotal: {subtotal:.2f}", ln=True)
     pdf.cell(200, 10, f"Tax Amount: {tax_amount:.2f}", ln=True)
     pdf.cell(200, 10, f"Discount: {discount:.2f}", ln=True)
     pdf.cell(200, 10, f"Shipping Cost: {shipping:.2f}", ln=True)
-    pdf.cell(200, 10, f"Total Amount: {total_amount:.2f}", ln=True)
+    pdf.cell(200, 10, f"Total Amount: {total:.2f}", ln=True)
     pdf.cell(200, 10, f"Payment Status: {payment_status}", ln=True)
     
     pdf_output = f"invoice_{invoice_id}.pdf"
     pdf.output(pdf_output)
     return pdf_output
 
-# Function to add an invoice
 def add_invoice():
-    order_ids = st.session_state["purchase_orders"]["Order ID"].tolist()
-    selected_order = st.selectbox("Select Purchase Order", order_ids)
+    st.subheader("🧾 Generate Invoice")
+    purchase_orders_df = pd.read_sql("SELECT id, supplier_name FROM purchase_orders", conn)
+    
+    if purchase_orders_df.empty:
+        st.warning("No purchase orders available. Please add one first.")
+        return
+    
+    selected_order_id = st.selectbox("Select Purchase Order", purchase_orders_df["id"].tolist())
+    supplier_info = purchase_orders_df[purchase_orders_df["id"] == selected_order_id].iloc[0]
+    supplier_name = supplier_info["supplier_name"]
+    supplier_address = pd.read_sql(f"SELECT address FROM suppliers WHERE name='{supplier_name}'", conn)["address"][0]
     invoice_date = st.date_input("Invoice Date")
-    supplier_name = st.text_input("Supplier Name")
-    payment_status = st.selectbox("Payment Status", ["Paid", "Pending", "Overdue"])
-    
-    num_items = st.number_input("Number of Items", min_value=1, value=1)
-    items = []
-    subtotal = 0
-    st.subheader("Add Items")
-    for i in range(int(num_items)):
-        name = st.text_input(f"Item {i+1} Name", key=f"item_{i}_name")
-        rate = st.number_input(f"Rate (RS)", min_value=0.0, format="%.2f", key=f"item_{i}_rate")
-        quantity = st.number_input(f"Quantity", min_value=1, key=f"item_{i}_quantity")
-        item_tax = st.number_input(f"Tax (%)", min_value=0.0, format="%.2f", key=f"item_{i}_tax")
-        item_discount = st.number_input(f"Discount (USD)", min_value=0.0, format="%.2f", key=f"item_{i}_discount")
-        total = (rate * quantity) + ((rate * quantity) * item_tax / 100) - item_discount
-        if name:
-            items.append({"name": name, "rate": rate, "quantity": quantity, "tax": item_tax, "discount": item_discount, "total": total})
-            subtotal += total
-    
-    tax_amount = sum(item['total'] * (item['tax'] / 100) for item in items)
-    total_amount = subtotal + tax_amount
+    subtotal = st.number_input("Subtotal", min_value=0.0, format="%.2f")
+    tax = st.number_input("Tax Percentage", min_value=0.0, format="%.2f")
+    tax_amount = (subtotal * tax) / 100
+    discount = st.number_input("Discount", min_value=0.0, format="%.2f")
+    shipping = st.number_input("Shipping Cost", min_value=0.0, format="%.2f")
+    total = subtotal + tax_amount - discount + shipping
+    payment_status = st.selectbox("Payment Status", ["Pending", "Paid"])
     
     if st.button("Generate Invoice"):
         invoice_id = generate_invoice_id()
-        pdf_path = create_invoice_pdf(invoice_id, supplier_name, invoice_date, items, subtotal, tax_amount, tax_amount, 0, 0, total_amount, payment_status)
-        with open(pdf_path, "rb") as file:
-            st.download_button(label="Download Invoice PDF", data=file, file_name=pdf_path, mime="application/pdf")
+        pdf_file = create_invoice_pdf(invoice_id, supplier_name, supplier_address, invoice_date, subtotal, tax_amount, discount, shipping, total, payment_status)
+        st.success(f"Invoice {invoice_id} generated successfully!")
+        with open(pdf_file, "rb") as file:
+            st.download_button(label="Download Invoice", data=file, file_name=pdf_file, mime="application/pdf")
+        os.remove(pdf_file)
 
-# Main application
 def main():
-    st.title("Supplier Management System")
-    
-    tabs = st.tabs(["View Suppliers", "Add Supplier", "Add Purchase Order", "View Purchase Orders", "Generate Invoice", "View Invoices"])
-    
-    with tabs[0]:
-        st.subheader("📋 View All Suppliers")
-        if st.session_state["suppliers"].empty:
-            st.info("No suppliers available. Add some suppliers to get started.")
-        else:
-            st.table(st.session_state["suppliers"])  # Non-scrollable table
-    
-    with tabs[1]:
-        add_supplier()
-    
-    with tabs[2]:
-        add_purchase_order()
-    
-    with tabs[3]:
-        st.subheader("📋 View Purchase Orders")
-        if st.session_state["purchase_orders"].empty:
-            st.info("No purchase orders available.")
-        else:
-            st.table(st.session_state["purchase_orders"])  # Non-scrollable table
-    
-    with tabs[4]:
-        add_invoice()
-    
-    with tabs[5]:
-        st.subheader("📋 View Invoices")
-        if st.session_state["invoices"].empty:
-            st.info("No invoices generated.")
-        else:
-            st.table(st.session_state["invoices"])  # Non-scrollable table
+    st.title("Supplier Management System with SQLite")
+    tabs = st.tabs(["View Suppliers", "Add Supplier", "Add Purchase Order", "Generate Invoice"])
+    with tabs[0]: st.subheader("📋 View Suppliers")
+    with tabs[1]: add_supplier()
+    with tabs[2]: add_purchase_order()
+    with tabs[3]: add_invoice()
 
 if __name__ == "__main__":
     main()

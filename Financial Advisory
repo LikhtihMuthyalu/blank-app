@@ -3,7 +3,7 @@ import pandas as pd
 import sqlite3
 
 # Database connection
-conn = sqlite3.connect("pharmacy.db", check_same_thread=False)
+conn = sqlite3.connect("FA.db", check_same_thread=False)
 c = conn.cursor()
 
 # Create table if not exists
@@ -21,7 +21,9 @@ c.execute('''CREATE TABLE IF NOT EXISTS inventory (
                 purchase_price REAL,
                 sales_quantity INTEGER,
                 purchase_quantity INTEGER,
-                date_of_sale TEXT
+                date_of_sale TEXT,
+                amount_paid REAL,
+                due_amount REAL
             )''')
 conn.commit()
 
@@ -56,14 +58,16 @@ with st.form("product_form"):
     sales_quantity = st.number_input("Sales Quantity", min_value=0, step=1)
     purchase_quantity = st.number_input("Purchase Quantity", min_value=0, step=1)
     date_of_sale = st.date_input("Date of Sale")
+    amount_paid = st.number_input("Amount Paid", min_value=0.0)
+    due_amount = st.number_input("Due Amount", min_value=0.0)
     submit_button = st.form_submit_button("Add Product")
 
     if submit_button:
         c.execute('''INSERT INTO inventory (company, product_name, product_description, usage, manufacture_date, expiry_date, 
-                    date_of_purchase, next_stock_purchase, selling_price, purchase_price, sales_quantity, purchase_quantity, date_of_sale) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
+                    date_of_purchase, next_stock_purchase, selling_price, purchase_price, sales_quantity, purchase_quantity, date_of_sale, amount_paid, due_amount) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
                   (company, product_name, product_description, usage, manufacture_date, expiry_date, date_of_purchase, 
-                   next_stock_purchase, selling_price, purchase_price, sales_quantity, purchase_quantity, date_of_sale))
+                   next_stock_purchase, selling_price, purchase_price, sales_quantity, purchase_quantity, date_of_sale, amount_paid, due_amount))
         conn.commit()
         st.success("Product added successfully!")
 
@@ -79,7 +83,7 @@ st.bar_chart(company_sales)
 st.header("Products by Company")
 for company, group in df.groupby("company"):
     st.subheader(company)
-    st.write(group[["product_name", "product_description", "usage", "selling_price", "purchase_price"]])
+    st.write(group[["product_name", "product_description", "usage", "selling_price", "purchase_price", "amount_paid", "due_amount"]])
 
 # Product-wise Sales and Purchase Report
 st.header("Product-wise Sales and Purchase Report")

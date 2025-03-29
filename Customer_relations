@@ -8,7 +8,7 @@ st.set_page_config(layout="wide")
 
 # Database Functions
 def create_database():
-    conn = sqlite3.connect('medical_shop_final.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
 
     # Create Customers Table
@@ -64,9 +64,9 @@ def create_database():
 
 # Inventory Functions
 def view_inventory():
-    conn = sqlite3.connect('inventory_mine.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
-    cursor.execute('SELECT item, quantity, price FROM supplies')
+    cursor.execute('SELECT item, quantity, price FROM inventory')
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -115,7 +115,7 @@ def checkout_with_details(cart, customer_contact):
         return False, "❌ Cart is empty. Cannot proceed with billing."
     
     # Check if the customer exists
-    conn = sqlite3.connect('medical_shop_final.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
     cursor.execute('SELECT name FROM customers WHERE contact = ?', (customer_contact,))
     customer = cursor.fetchone()
@@ -161,7 +161,7 @@ def checkout_with_details(cart, customer_contact):
 
 # Customer Functions
 def add_customer(contact, name, age, gender, address):
-    conn = sqlite3.connect('medical_shop_final.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
     cursor.execute('SELECT contact FROM customers WHERE contact = ?', (contact,))
     existing_contact = cursor.fetchone()
@@ -171,7 +171,7 @@ def add_customer(contact, name, age, gender, address):
         return False, "📞 Customer with this contact already exists."
 
     try:
-        conn = sqlite3.connect('medical_shop_final.db')
+        conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO customers (contact, name, age, gender, address) 
@@ -185,7 +185,7 @@ def add_customer(contact, name, age, gender, address):
         conn.close()
 
 def view_customers():
-    conn = sqlite3.connect('medical_shop_final.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
     cursor.execute('SELECT id, contact, name, age, gender, address FROM customers')
     rows = cursor.fetchall()
@@ -193,7 +193,7 @@ def view_customers():
     return rows
 
 def delete_customer(contact):
-    conn = sqlite3.connect('medical_shop_final.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM customers WHERE contact = ?', (contact,))
     if cursor.fetchone():
@@ -206,7 +206,7 @@ def delete_customer(contact):
         return False, "❌ Customer not found."
 
 def delete_all_customers():
-    conn = sqlite3.connect('medical_shop_final.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
     cursor.execute('DELETE FROM customers')
     conn.commit()
@@ -214,7 +214,7 @@ def delete_all_customers():
     return "✅ All customers deleted successfully!"
 
 def view_customer_purchases():
-    conn = sqlite3.connect('medical_shop_final.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
     cursor.execute('''
         SELECT c.contact, c.name, p.item, p.quantity, p.price, p.date 
@@ -222,13 +222,16 @@ def view_customer_purchases():
         LEFT JOIN purchase_history p 
         ON c.contact = p.contact
     ''')
-    rows = cursor.fetchall()
+    rows = cursor.fetchall() 
     conn.close()
     return rows
 
+ 
+
+
 def add_feedback(contact, rating, suggestion):
     try:
-        conn = sqlite3.connect('medical_shop_final.db')
+        conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO feedback (contact, rating, suggestion) 
@@ -242,7 +245,7 @@ def add_feedback(contact, rating, suggestion):
         conn.close()
 
 def view_feedback():
-    conn = sqlite3.connect('medical_shop_final.db')
+    conn = sqlite3.connect(r"C:\Users\BRYAN D'SOUZA\Desktop\Project\code\app\project_db\medical_shop_final.db")
     cursor = conn.cursor()
     cursor.execute('SELECT contact, rating, suggestion FROM feedback')
     rows = cursor.fetchall()
@@ -340,7 +343,7 @@ elif page == "Feedback":
         st.info("🧐 No feedback records found.")
 
 elif page == "Billing System":
-    st.title("🧾 Billing System ")
+    st.title("🧾 Billing System (Interactive POS)")
 
     # Initialize Cart
     if "cart" not in st.session_state:

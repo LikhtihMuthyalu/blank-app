@@ -154,7 +154,6 @@ def checkout_with_details(cart, customer_contact):
 
     # Clear the cart
     cart.clear()
-
     return True, f"✔️ Billing successful! \nBill Number: {bill_number} \nCustomer: {customer[0]} \nTotal Amount: ₹{total_amount:.2f} \nDate: {timestamp.strftime('%Y-%m-%d')} \nTime: {timestamp.strftime('%H:%M:%S')}"
 
 
@@ -226,6 +225,7 @@ def view_customer_purchases():
     conn.close()
     return rows
 
+#The feedback section
 def add_feedback(contact, rating, suggestion):
     try:
         conn = sqlite3.connect('medical_shop_final.db')
@@ -362,7 +362,8 @@ elif page == "Billing System":
             filtered_inventory = inventory_df[inventory_df["Item"].str.contains(search_term, case=False)]
             st.dataframe(filtered_inventory.style.highlight_max(axis=0), use_container_width=True)
         else:
-            st.dataframe(inventory_df.style.highlight_max(axis=0), use_container_width=True)
+            st.dataframe(inventory_df, use_container_width=True)
+
     else:
         st.info("🛍️ Inventory is empty. Add items to get started.")
 
@@ -420,11 +421,22 @@ elif page == "Billing System":
         total_amount = calculate_total(st.session_state.cart)
         st.markdown(f"### 💵 Total Amount: ₹{total_amount:.2f}")
 
-        # Clear Cart with Confirmation
-        if st.button("🗑️ Clear Cart"):
-            if st.confirm("Are you sure you want to clear the cart? This action cannot be undone."):
+      # Clear Cart with Confirmation
+    if st.button("🗑️ Clear Cart"):
+        st.session_state.confirm_clear = True
+
+    if st.session_state.get("confirm_clear", False):
+        st.warning("Are you sure you want to clear the cart? This action cannot be undone.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Yes, clear it"):
                 st.session_state.cart.clear()
-                st.info("✅ Cart cleared.")
+                st.session_state.confirm_clear = False
+                st.success("✅ Cart cleared.")
+        with col2:
+            if st.button("❌ Cancel"):
+                st.session_state.confirm_clear = False
+
 
         # Checkout Workflow
         st.header("🧾 Checkout")
